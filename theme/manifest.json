@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "zbrowser Cyberpunk",
+  "short_name": "zbrowser-theme",
+  "version": "1.0.0",
+  "description": "Cyberpunk chrome theme for zbrowser — the strykelang HUD palette applied to frame, toolbar, tabs and NTP.",
+  "theme": {
+    "colors": {
+      "frame":             [5, 5, 10],
+      "frame_inactive":    [5, 5, 10],
+      "frame_incognito":   [3, 3, 7],
+      "toolbar":           [10, 10, 20],
+      "tab_text":          [224, 240, 255],
+      "tab_background_text":[148, 163, 184],
+      "bookmark_text":     [224, 240, 255],
+      "button_background": [10, 10, 20],
+      "ntp_background":    [5, 5, 10],
+      "ntp_text":          [224, 240, 255],
+      "ntp_link":          [5, 217, 232],
+      "ntp_section":       [13, 13, 26]
+    },
+    "tints": {
+      "buttons": [0.5, 0.7, 0.55]
+    },
+    "properties": {
+      "ntp_background_alignment": "center",
+      "ntp_logo_alternate": 1
+    }
+  }
+}

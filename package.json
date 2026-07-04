@@ -1,0 +1,18 @@
+{
+  "name": "zbrowser",
+  "version": "0.1.0",
+  "description": "Chromium, rebranded — the zpwrchrome power-tool, a cyberpunk theme, and a cyberpunk new-tab page preloaded on a real Blink base.",
+  "homepage": "https://github.com/MenkeTechnologies/zbrowser",
+  "license": "MIT",
+  "author": "MenkeTechnologies",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MenkeTechnologies/zbrowser.git"
+  },
+  "scripts": {
+    "install-browser": "scripts/install.sh",
+    "fetch-base": "scripts/fetch-base.sh",
+    "rebrand": "scripts/rebrand-macos.sh",
+    "start": "bin/zbrowser"
+  }
+}

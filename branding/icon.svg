@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#04060c"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8cdbff"/>
+      <stop offset="1" stop-color="#00b0ff"/>
+    </linearGradient>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0 H0 V64" fill="none" stroke="#00b0ff" stroke-width="1.5" opacity="0.10"/>
+    </pattern>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="180" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="180" fill="url(#grid)"/>
+
+  <!-- chamfered cyberpunk frame (cut corners) -->
+  <path d="M 232 150 H 792 L 874 232 V 792 L 792 874 H 232 L 150 792 V 232 Z"
+        fill="none" stroke="url(#ink)" stroke-width="14" filter="url(#glow)"/>
+  <g fill="none" stroke="#8cdbff" stroke-width="10" stroke-linecap="square" filter="url(#glow)">
+    <path d="M 150 300 V 232 L 218 232"/>
+    <path d="M 874 300 V 232 L 806 232"/>
+    <path d="M 150 724 V 792 L 218 792"/>
+    <path d="M 874 724 V 792 L 806 792"/>
+  </g>
+
+  <!-- accent glyph (monogram), width-pinned so all icons match size -->
+  <text x="512" y="600" font-family="Orbitron" font-weight="900" font-size="340"
+        textLength="520" lengthAdjust="spacingAndGlyphs"
+        fill="url(#ink)" text-anchor="middle" filter="url(#glow)">ZB</text>
+
+  <!-- wordmark strip, width-pinned -->
+  <text x="512" y="782" font-family="Orbitron" font-weight="700" font-size="92"
+        textLength="600" lengthAdjust="spacingAndGlyphs"
+        fill="#00b0ff" text-anchor="middle" opacity="0.9">ZBROWSER</text>
+</svg>

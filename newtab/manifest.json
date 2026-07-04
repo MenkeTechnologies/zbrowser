@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "zbrowser New Tab",
+  "short_name": "zbrowser-newtab",
+  "version": "1.0.0",
+  "description": "Cyberpunk new-tab page for zbrowser — neon clock, omnibox search, quick-launch tiles.",
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  }
+}

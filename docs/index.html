@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zbrowser — Chromium, rebranded (cyberpunk · zpwrchrome preloaded)</title>
+  <meta name="description" content="zbrowser is a Chromium/Blink browser, rebranded: the zpwrchrome power-tool, a cyberpunk chrome theme, and a cyberpunk new-tab page preloaded on a Chrome-for-Testing base. Runtime rebrand — no source fork.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    html { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    ::selection { background: rgba(5, 217, 232, 0.3); color: #fff; }
+    :root {
+      --bg-primary: #05050a; --bg-secondary: #0a0a14; --bg-card: #0d0d1a; --bg-hover: #12122a;
+      --accent: #ff2a6d; --accent-light: #ff6b9d; --accent-glow: rgba(255, 42, 109, 0.4);
+      --cyan: #05d9e8; --cyan-glow: rgba(5, 217, 232, 0.4);
+      --magenta: #d300c5; --green: #39ff14; --red: #ff073a;
+      --text: #e0f0ff; --text-dim: #7a8ba8; --text-muted: #3d4f6a;
+      --border: #1a1a3e;
+      --grid: rgba(5, 217, 232, 0.042);
+    }
+    body {
+      font-family: 'Share Tech Mono', 'SF Mono', 'Fira Code', monospace;
+      background-color: var(--bg-primary);
+      background-image:
+        radial-gradient(ellipse at 20% 40%, rgba(5, 217, 232, 0.05) 0%, transparent 52%),
+        radial-gradient(ellipse at 80% 20%, rgba(211, 0, 197, 0.045) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 85%, rgba(255, 42, 109, 0.035) 0%, transparent 48%),
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: auto, auto, auto, 52px 52px, 52px 52px;
+      background-attachment: fixed;
+      color: var(--text); min-height: 100vh; line-height: 1.6;
+    }
+    .scanline {
+      position: fixed; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(5,217,232,.08) 50%, transparent);
+      pointer-events: none; z-index: 50; animation: hscan 12s linear infinite;
+    }
+    @keyframes hscan { 0% { top: -2px; opacity: 0; } 5%, 95% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(5,5,10,.5); }
+    ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--cyan), var(--magenta)); border-radius: 4px; }
+
+    header.hero {
+      padding: 72px 24px 48px; text-align: center;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #070714 0%, #0d0d22 45%, var(--bg-secondary) 100%);
+      box-shadow: 0 4px 28px rgba(0,0,0,.55), inset 0 1px 0 rgba(5,217,232,.06);
+      position: relative;
+    }
+    header.hero::after {
+      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--cyan), var(--accent), var(--cyan), transparent); opacity: .6;
+    }
+    .mark {
+      display: inline-block; font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 2rem;
+      color: var(--bg-primary); background: var(--cyan); padding: 4px 14px; border-radius: 6px;
+      box-shadow: 0 0 24px var(--cyan-glow); margin-bottom: 18px; letter-spacing: 2px;
+    }
+    h1 {
+      font-family: 'Orbitron', sans-serif; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 900;
+      letter-spacing: 5px; text-transform: uppercase;
+      background: linear-gradient(90deg, var(--cyan), #fff, var(--accent), var(--cyan));
+      background-size: 300% 100%; -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 12px var(--cyan-glow));
+    }
+    .tagline { margin-top: 16px; color: var(--text-dim); font-size: 1.05rem; }
+    .tagline b { color: var(--cyan); }
+    .badges { margin-top: 24px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .badge {
+      font-size: .78rem; letter-spacing: 1px; text-transform: uppercase;
+      border: 1px solid var(--border); border-radius: 4px; padding: 5px 11px; color: var(--text-dim);
+      background: var(--bg-card);
+    }
+    .badge b { color: var(--accent); }
+
+    main { max-width: 940px; margin: 0 auto; padding: 56px 24px 96px; }
+    section { margin-bottom: 56px; }
+    h2 {
+      font-family: 'Orbitron', sans-serif; font-size: 1.15rem; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--cyan); margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    }
+    h2 .hex { color: var(--accent); }
+    p { color: var(--text); margin-bottom: 14px; }
+    p.muted { color: var(--text-dim); }
+    code {
+      font-family: 'Share Tech Mono', monospace; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; color: var(--cyan); font-size: .92em;
+    }
+    pre {
+      background: var(--bg-card); border: 1px solid var(--border); border-left: 3px solid var(--cyan);
+      border-radius: 6px; padding: 18px 20px; overflow-x: auto; margin-bottom: 18px;
+    }
+    pre code { background: none; border: none; padding: 0; color: var(--text); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { color: var(--accent); text-decoration: underline; }
+
+    .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 20px;
+      transition: border-color .15s, transform .15s;
+    }
+    .card:hover { border-color: var(--cyan); transform: translateY(-2px); }
+    .card h3 { font-family: 'Orbitron', sans-serif; font-size: .95rem; color: var(--cyan); letter-spacing: 1px; margin-bottom: 8px; }
+    .card p { color: var(--text-dim); font-size: .9rem; margin: 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--accent); text-transform: uppercase; letter-spacing: 1px; font-size: .78rem; }
+    td code { white-space: nowrap; }
+
+    .note { border-left: 3px solid var(--accent); background: rgba(255,42,109,.05); padding: 14px 18px; border-radius: 0 6px 6px 0; color: var(--text-dim); }
+    footer { text-align: center; padding: 40px 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <div class="scanline"></div>
+
+  <header class="hero">
+    <div class="mark">ZB</div>
+    <h1>zbrowser</h1>
+    <p class="tagline"><b>Chromium — rebranded.</b> Your extensions, your look, on a real Blink engine.</p>
+    <div class="badges">
+      <span class="badge">base · <b>chromium</b></span>
+      <span class="badge">preloaded · <b>zpwrchrome</b></span>
+      <span class="badge">theme · <b>cyberpunk</b></span>
+      <span class="badge">license · <b>MIT</b></span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2><span class="hex">0x00</span> &nbsp;What it is</h2>
+      <p>zbrowser is a <b>Chromium/Blink browser, rebranded</b>. On every launch it preloads the
+        <a href="https://github.com/MenkeTechnologies/zpwrchrome">zpwrchrome</a> power-tool, a cyberpunk chrome
+        theme, and a cyberpunk new-tab page — running against a dedicated profile so it never touches your
+        system Chrome. No source fork, nothing to compile.</p>
+    </section>
+
+    <section>
+      <h2><span class="hex">0x01</span> &nbsp;Why a real Blink base</h2>
+      <p>zpwrchrome is a Manifest V3 extension needing <code>userScripts</code>,
+        <code>declarativeNetRequestWithHostAccess</code>, <code>nativeMessaging</code> and a service-worker
+        background. That runs only on a genuine Chromium engine — not WebKit (Tauri/Safari) or Servo.</p>
+      <p>The base is <a href="https://googlechromelabs.github.io/chrome-for-testing/">Chrome for Testing</a>,
+        chosen for one reason: the <code>--load-extension</code> switch that preloads zpwrchrome
+        <a href="https://groups.google.com/a/chromium.org/g/chromium-extensions/c/1-g8EFx2BBY/m/S0ET5wPjCAAJ">was
+        removed from branded Chrome in v137</a> but is kept in Chromium and CfT.</p>
+    </section>
+
+    <section>
+      <h2><span class="hex">0x02</span> &nbsp;Architecture</h2>
+      <div class="grid-cards">
+        <div class="card"><h3>Base</h3><p>Chrome for Testing, pinned stable, fetched by <code>fetch-base.sh</code>.</p></div>
+        <div class="card"><h3>Rebrand</h3><p>The base bundle's Dock name &amp; icon patched in place to zbrowser.</p></div>
+        <div class="card"><h3>Theme</h3><p>A Chrome theme extension mapping the HUD palette onto frame, toolbar and tabs.</p></div>
+        <div class="card"><h3>New tab</h3><p>A <code>newtab</code> override: neon clock, omnibox, quick-launch tiles.</p></div>
+        <div class="card"><h3>Power-tool</h3><p>zpwrchrome loaded as a submodule — reused, never copied.</p></div>
+        <div class="card"><h3>Launcher</h3><p><code>bin/zbrowser</code> starts it all against <code>~/.zbrowser/profile</code>.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="hex">0x03</span> &nbsp;Install</h2>
+      <pre><code>git clone --recurse-submodules https://github.com/MenkeTechnologies/zbrowser.git
+cd zbrowser
+scripts/install.sh          # fetch base + link `zbrowser` on PATH + rebrand (macOS)
+zbrowser                    # launch</code></pre>
+      <p class="muted">Re-run <code>install.sh</code> after a base upgrade.</p>
+    </section>
+
+    <section>
+      <h2><span class="hex">0x04</span> &nbsp;State</h2>
+      <table>
+        <tr><th>Path</th><th>Purpose</th></tr>
+        <tr><td><code>~/.zbrowser/base/</code></td><td>the Chrome for Testing binary</td></tr>
+        <tr><td><code>base.path</code> / <code>base.version</code></td><td>resolved binary + pinned version</td></tr>
+        <tr><td><code>~/.zbrowser/profile/</code></td><td>dedicated user-data-dir — bookmarks, history, sessions</td></tr>
+      </table>
+    </section>
+
+    <section>
+      <h2><span class="hex">0x05</span> &nbsp;Why not fork Chromium source</h2>
+      <div class="note">A solo-maintained Chromium <b>source</b> fork means re-merging security patches against a
+        codebase that changes daily — the trap that keeps Brave and ungoogled-chromium team-sized. The runtime
+        rebrand delivers "Chrome with my branding and extensions" and upgrades by swapping one binary.</div>
+    </section>
+  </main>
+
+  <footer>
+    zbrowser · MIT · part of the <a href="https://github.com/MenkeTechnologies">MenkeTechnologies</a> stack
+  </footer>
+</body>
+</html>
