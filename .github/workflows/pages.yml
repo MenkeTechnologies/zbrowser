@@ -33,6 +33,9 @@ jobs:
         with:
           submodules: false
       - uses: actions/configure-pages@v5
+        # Enable Pages on first run so a fresh repo needs no manual toggle.
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
