@@ -1,5 +1,7 @@
 # runtime state (base browser + profile) never lives in the repo
 .zbrowser/
+# Chromium compiles loaded themes into this cache inside theme/
+Cached Theme.pak
 node_modules/
 *.log
 .DS_Store
