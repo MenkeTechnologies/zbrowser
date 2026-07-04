@@ -33,8 +33,11 @@ fi
 # Extensions loaded on every launch, comma-separated. Only directories that
 # exist are included, so a missing zpwrchrome submodule degrades gracefully to
 # just the theme + new-tab.
+# NOTE: theme/ is intentionally NOT loaded — the fork's native color mixer owns
+# the chrome palette (scheme-driven via the HUD picker), and a static theme
+# extension would override it (custom themes apply last in the color pipeline).
 EXTS=()
-for ext in "$ROOT/theme" "$ROOT/newtab" "$ROOT/extensions/zpwrchrome"; do
+for ext in "$ROOT/newtab" "$ROOT/extensions/zpwrchrome" "$ROOT/extensions/hud-internal"; do
   [[ -f $ext/manifest.json ]] && EXTS+=("$ext")
 done
 IFS=','; LOAD="${EXTS[*]}"; unset IFS
@@ -44,6 +47,8 @@ mkdir -p "$PROFILE"
 exec "$BASE" \
   --user-data-dir="$PROFILE" \
   --load-extension="$LOAD" \
+  --extensions-on-chrome-urls \
+  --test-type \
   --no-first-run \
   --no-default-browser-check \
   --homepage="chrome://newtab" \

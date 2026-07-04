@@ -1,0 +1,47 @@
+diff --git a/front_end/design_system_tokens.css b/front_end/design_system_tokens.css
+index de3f89a652..cd8c3c4d45 100644
+--- a/front_end/design_system_tokens.css
++++ b/front_end/design_system_tokens.css
+@@ -1059,3 +1059,42 @@
+   --ref-palette-indigo99: rgb(255 251 255 / 100%);
+   --ref-palette-indigo100: rgb(255 255 255 / 100%);
+ }
++
++/* zbrowser HUD: force the strykelang cyberpunk palette onto DevTools, overriding
++ * the default grey dark theme. Appended last so these win the cascade. */
++:root,
++:root.theme-with-dark-background {
++  --sys-color-base: #05050a;
++  --sys-color-surface: #05050a;
++  --sys-color-surface1: #0a0a14;
++  --sys-color-surface2: #0d0d1a;
++  --sys-color-surface3: #12122a;
++  --sys-color-surface4: #12122a;
++  --sys-color-surface5: #16163a;
++  --sys-color-cdt-base-container: #0a0a14;
++  --sys-color-base-container: #0d0d1a;
++  --sys-color-base-container-elevated: #12122a;
++  --sys-color-surface-variant: #0d0d1a;
++  --sys-color-neutral-container: #0d0d1a;
++  --sys-color-omnibox-container: #0d0d1a;
++  --sys-color-divider: #1a1a3e;
++  --sys-color-on-surface: #e0f0ff;
++  --sys-color-on-surface-subtle: #7a8ba8;
++  --sys-color-on-surface-secondary: #9a86c8;
++  --sys-color-on-base: #e0f0ff;
++  --sys-color-on-base-divider: #1a1a3e;
++  --sys-color-primary: #05d9e8;
++  --sys-color-primary-bright: #05d9e8;
++  --sys-color-on-primary: #05050a;
++  --sys-color-secondary: #ff2a6d;
++  --sys-color-tonal-container: #1a1a3e;
++  --sys-color-on-tonal-container: #05d9e8;
++  --sys-color-tonal-outline: #2a1a4e;
++  --sys-color-outline: #2a1a4e;
++  --sys-color-state-hover-on-subtle: #12122a;
++  --sys-color-state-focus-highlight: #1a1a3e;
++  --sys-color-inverse-surface: #e0f0ff;
++  --sys-color-inverse-on-surface: #05050a;
++  --sys-color-token-property-special: #ff2a6d;
++  --sys-color-token-variable: #05d9e8;
++}

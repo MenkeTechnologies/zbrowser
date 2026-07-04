@@ -1,37 +1,220 @@
 diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
+index f5874357cb..7cff07cc04 100644
 --- a/chrome/browser/ui/color/chrome_color_mixer.cc
 +++ b/chrome/browser/ui/color/chrome_color_mixer.cc
-@@ -1117,6 +1117,33 @@
-   mixer[kColorReadAnythingFullPageScrollbarLowContrastDark] = {
-       SkColorSetRGB(0xC7, 0xC7, 0xC7)};
+@@ -6,6 +6,21 @@
  
-+  // zbrowser HUD: force the strykelang cyberpunk palette onto the native
-+  // chrome, unconditionally (the HUD is always dark). Placed before the
-+  // high-contrast early-return above so it always applies. Palette mirrors
-+  // docs/hud-static.css / newtab.css (cyberpunk scheme).
-+  {
-+    const SkColor kHudFrame = SkColorSetRGB(0x05, 0x05, 0x0a);   // --bg-primary
-+    const SkColor kHudToolbar = SkColorSetRGB(0x0a, 0x0a, 0x14); // --bg-secondary
-+    const SkColor kHudCard = SkColorSetRGB(0x0d, 0x0d, 0x1a);    // --bg-card
-+    const SkColor kHudText = SkColorSetRGB(0xe0, 0xf0, 0xff);    // --text
-+    const SkColor kHudTextDim = SkColorSetRGB(0x7a, 0x8b, 0xa8); // --text-dim
-+    const SkColor kHudCyan = SkColorSetRGB(0x05, 0xd9, 0xe8);    // --cyan
-+    const SkColor kHudBorder = SkColorSetRGB(0x1a, 0x1a, 0x3e);  // --border
-+    mixer[ui::kColorFrameActive] = {kHudFrame};
-+    mixer[ui::kColorFrameInactive] = {kHudFrame};
-+    mixer[kColorToolbar] = {kHudToolbar};
-+    mixer[kColorToolbarText] = {kHudText};
-+    mixer[kColorToolbarButtonIcon] = {kHudCyan};
-+    mixer[kColorToolbarContentAreaSeparator] = {kHudCyan};  // neon under-toolbar line
-+    mixer[kColorToolbarSeparator] = {kHudBorder};
-+    mixer[kColorLocationBarBackground] = {kHudCard};
-+    mixer[kColorLocationBarBorder] = {kHudCyan};
-+    mixer[kColorTabBackgroundActiveFrameActive] = {kHudToolbar};
-+    mixer[kColorTabBackgroundInactiveFrameActive] = {kHudFrame};
-+    mixer[kColorTabForegroundActiveFrameActive] = {kHudCyan};
-+    mixer[kColorTabForegroundInactiveFrameActive] = {kHudTextDim};
-+  }
+ #include <string>
+ 
++// zbrowser HUD: scheme-driven native palette (reads ~/.zbrowser/hud-scheme,
++// live-updates on change so the color-scheme picker drives the native chrome).
++#include <atomic>
++#include "base/base_paths.h"
++#include "base/containers/span.h"
++#include "base/files/file_path.h"
++#include "base/files/file_path_watcher.h"
++#include "base/files/file_util.h"
++#include "base/functional/bind.h"
++#include "base/no_destructor.h"
++#include "base/path_service.h"
++#include "base/strings/string_util.h"
++#include "content/public/browser/browser_thread.h"
++#include "ui/native_theme/native_theme.h"
 +
+ #include "base/feature_list.h"
+ #include "base/logging.h"
+ #include "base/strings/string_number_conversions.h"
+@@ -29,6 +44,93 @@
+ 
+ namespace {
+ 
++// ---- zbrowser HUD scheme system -------------------------------------------
++// The 8 strykelang schemes, baked native. The active one is chosen by the
++// color-scheme picker (a content-script extension), which writes the scheme
++// name to ~/.zbrowser/hud-scheme; a FilePathWatcher live-repaints the chrome.
++struct HudScheme {
++  const char* name;
++  SkColor p, s, c, h;      // bg: primary, secondary, card, hover
++  SkColor t, td;           // text, text-dim
++  SkColor a, cy, m, b;     // accent(hot), cyan, magenta, border
++};
++constexpr HudScheme kHudSchemes[] = {
++  {"cyberpunk", 0xFF05050A,0xFF0A0A14,0xFF0D0D1A,0xFF12122A, 0xFFE0F0FF,0xFF7A8BA8, 0xFFFF2A6D,0xFF05D9E8,0xFFD300C5,0xFF1A1A3E},
++  {"midnight",  0xFF020617,0xFF0F172A,0xFF1E293B,0xFF334155, 0xFFE2E8F0,0xFF94A3B8, 0xFF7C3AED,0xFF38BDF8,0xFF6366F1,0xFF334155},
++  {"matrix",    0xFF000500,0xFF001A00,0xFF002A00,0xFF003A00, 0xFFD4FFD4,0xFF7CCC7C, 0xFF00FF41,0xFF00FFCC,0xFF008F39,0xFF004D00},
++  {"ember",     0xFF0A0503,0xFF1A0F05,0xFF27150A,0xFF3A1F0F, 0xFFFED7AA,0xFFD97706, 0xFFF97316,0xFFFBBF24,0xFFDC2626,0xFF4A2C17},
++  {"arctic",    0xFF020617,0xFF0C1424,0xFF0F1E33,0xFF1E2F4D, 0xFFE0F2FE,0xFF7DD3FC, 0xFF60A5FA,0xFF22D3EE,0xFF818CF8,0xFF1E3A5F},
++  {"crimson",   0xFF0A0506,0xFF140A0C,0xFF1A0D10,0xFF2A1318, 0xFFFFE4E6,0xFFB08A92, 0xFFE11D48,0xFF2DD4BF,0xFFF43F5E,0xFF3E1A22},
++  {"toxic",     0xFF07090A,0xFF0C0F0A,0xFF0F130C,0xFF161B10, 0xFFE8FFD0,0xFF8A9A6A, 0xFFC6FF00,0xFF00E5FF,0xFFFF00AA,0xFF2A3A1A},
++  {"vapor",     0xFF0D0814,0xFF140D1F,0xFF1A1228,0xFF241836, 0xFFF0E6FF,0xFFA99CC4, 0xFFFF6EC7,0xFF72F1FF,0xFFC792EA,0xFF2E2142},
++};
++constexpr int kHudSchemeCount = sizeof(kHudSchemes) / sizeof(kHudSchemes[0]);
++
++std::atomic<int>& HudSchemeIndex() {
++  static std::atomic<int> index{0};
++  return index;
++}
++
++base::FilePath HudSchemeDir() {
++  base::FilePath home;
++  base::PathService::Get(base::DIR_HOME, &home);
++  return home.Append(".zbrowser");
++}
++
++void ReadHudSchemeFile() {
++  std::string contents;
++  if (!base::ReadFileToString(HudSchemeDir().Append("hud-scheme"), &contents))
++    return;
++  std::string name(base::TrimWhitespaceASCII(contents, base::TRIM_ALL));
++  int idx = 0;
++  for (const auto& scheme : kHudSchemes) {
++    if (name == scheme.name) {
++      HudSchemeIndex().store(idx);
++      return;
++    }
++    ++idx;
++  }
++}
++
++void OnHudSchemeChanged(const base::FilePath&, bool) {
++  int before = HudSchemeIndex().load();
++  ReadHudSchemeFile();
++  if (HudSchemeIndex().load() != before) {
++    // Rebuild all color providers + repaint (same path as OS theme changes).
++    ui::NativeTheme::GetInstanceForNativeUi()->NotifyOnNativeThemeUpdated();
++    ui::NativeTheme::GetInstanceForWeb()->NotifyOnNativeThemeUpdated();
++  }
++}
++
++void StartHudSchemeWatcherOnUI() {
++  static base::NoDestructor<base::FilePathWatcher> watcher;
++  static bool started = false;
++  if (started)
++    return;
++  started = true;
++  ReadHudSchemeFile();
++  // Watch the directory (it exists; the file may be created later by the picker).
++  watcher->Watch(HudSchemeDir(), base::FilePathWatcher::Type::kNonRecursive,
++                 base::BindRepeating(&OnHudSchemeChanged));
++}
++
++void EnsureHudSchemeWatcher() {
++  static bool posted = false;
++  if (posted)
++    return;
++  posted = true;
++  content::GetUIThreadTaskRunner({})->PostTask(
++      FROM_HERE, base::BindOnce(&StartHudSchemeWatcherOnUI));
++}
++
++const HudScheme& ActiveHudScheme() {
++  int i = HudSchemeIndex().load();
++  if (i < 0 || i >= kHudSchemeCount)
++    i = 0;
++  return base::span(kHudSchemes)[static_cast<size_t>(i)];
++}
++// ---------------------------------------------------------------------------
++
+ // This differs from ui::SelectColorBasedOnInput in that we're checking if the
+ // input transform is *not* dark under the assumption that the background color
+ // *is* dark from a potential custom theme. Additionally, if the mode is
+@@ -1122,26 +1224,87 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+   // high-contrast early-return above so it always applies. Palette mirrors
+   // docs/hud-static.css / newtab.css (cyberpunk scheme).
+   {
+-    const SkColor kHudFrame = SkColorSetRGB(0x05, 0x05, 0x0a);   // --bg-primary
+-    const SkColor kHudToolbar = SkColorSetRGB(0x0a, 0x0a, 0x14); // --bg-secondary
+-    const SkColor kHudCard = SkColorSetRGB(0x0d, 0x0d, 0x1a);    // --bg-card
+-    const SkColor kHudText = SkColorSetRGB(0xe0, 0xf0, 0xff);    // --text
+-    const SkColor kHudTextDim = SkColorSetRGB(0x7a, 0x8b, 0xa8); // --text-dim
+-    const SkColor kHudCyan = SkColorSetRGB(0x05, 0xd9, 0xe8);    // --cyan
+-    const SkColor kHudBorder = SkColorSetRGB(0x1a, 0x1a, 0x3e);  // --border
++    // Colors come from the ACTIVE strykelang scheme (picker-driven, live). No
++    // hardcoded palette — cyberpunk defaults to the real near-black #05050a.
++    EnsureHudSchemeWatcher();
++    const HudScheme& hs = ActiveHudScheme();
++    const SkColor kHudBlack = hs.p;         // frame inactive (darkest bg)
++    const SkColor kHudFrame = hs.s;         // frame active (secondary bg)
++    const SkColor kHudToolbar = hs.s;       // toolbar / bookmarks
++    const SkColor kHudTabActive = hs.c;     // active tab well (card bg)
++    const SkColor kHudTabInactive = hs.p;   // inactive tab (primary bg)
++    const SkColor kHudCard = hs.c;          // omnibox field
++    const SkColor kHudText = hs.t;
++    const SkColor kHudTextDim = hs.td;
++    const SkColor kHudCyan = hs.cy;
++    const SkColor kHudMagenta = hs.a;       // accent = primary (hot pink in cyberpunk)
++    const SkColor kHudPurple = hs.m;        // scheme's magenta/tertiary
++    const SkColor kHudBorder = hs.b;
++    // Frame / titlebar.
+     mixer[ui::kColorFrameActive] = {kHudFrame};
+-    mixer[ui::kColorFrameInactive] = {kHudFrame};
++    mixer[ui::kColorFrameInactive] = {kHudBlack};
++    // Toolbar + bookmarks bar.
+     mixer[kColorToolbar] = {kHudToolbar};
+     mixer[kColorToolbarText] = {kHudText};
+     mixer[kColorToolbarButtonIcon] = {kHudCyan};
+-    mixer[kColorToolbarContentAreaSeparator] = {kHudCyan};  // neon under-toolbar line
++    mixer[kColorToolbarButtonIconHovered] = {kHudMagenta};
++    mixer[kColorToolbarContentAreaSeparator] = {kHudMagenta};  // hot-pink under-toolbar line
+     mixer[kColorToolbarSeparator] = {kHudBorder};
++    mixer[kColorToolbarButtonText] = {kHudCyan};
++    // Omnibox / location bar.
+     mixer[kColorLocationBarBackground] = {kHudCard};
+     mixer[kColorLocationBarBorder] = {kHudCyan};
+-    mixer[kColorTabBackgroundActiveFrameActive] = {kHudToolbar};
+-    mixer[kColorTabBackgroundInactiveFrameActive] = {kHudFrame};
+-    mixer[kColorTabForegroundActiveFrameActive] = {kHudCyan};
++    // Tabs — visible purple fills + a neon OUTLINE on every tab.
++    mixer[kColorTabBackgroundActiveFrameActive] = {kHudTabActive};
++    mixer[kColorTabBackgroundInactiveFrameActive] = {kHudTabInactive};
++    mixer[kColorTabForegroundActiveFrameActive] = {kHudMagenta};   // hot-pink active tab text
+     mixer[kColorTabForegroundInactiveFrameActive] = {kHudTextDim};
++    mixer[kColorTabStrokeFrameActive] = {kHudCyan};                // neon tab outline (focused)
++    mixer[kColorTabStrokeFrameInactive] = {kHudPurple};            // neon tab outline (blurred)
++    mixer[ui::kColorTabBorderSelected] = {kHudMagenta};
++    mixer[kColorTabDividerFrameActive] = {kHudPurple};
++    mixer[ui::kColorTabContentSeparator] = {kHudCyan};
++    // New-tab button.
++    mixer[kColorNewTabButtonForegroundFrameActive] = {kHudCyan};
++
++    // Material 3 "Sys" tokens: these drive WebUI internal pages
++    // (chrome://extensions, settings, history, downloads, menus, dialogs) via
++    // the color pipeline's --color-* CSS vars. Set them so the whole product,
++    // not just the browser frame, reads cyberpunk.
++    const SkColor kHudSurface = hs.p;      // page background
++    const SkColor kHudContainer = hs.c;    // cards / rows
++    const SkColor kHudContainerHi = hs.h;
++    mixer[ui::kColorSysSurface] = {kHudSurface};
++    mixer[ui::kColorSysBase] = {kHudSurface};
++    mixer[ui::kColorSysBaseContainer] = {kHudContainer};
++    mixer[ui::kColorSysBaseContainerElevated] = {kHudContainerHi};
++    mixer[ui::kColorSysBaseContainerOnSurface] = {kHudContainer};
++    mixer[ui::kColorSysSurfaceVariant] = {kHudContainer};
++    mixer[ui::kColorSysNeutralContainer] = {kHudContainer};
++    mixer[ui::kColorSysHeaderContainer] = {kHudFrame};
++    mixer[ui::kColorSysOnSurface] = {kHudText};
++    mixer[ui::kColorSysOnSurfaceSubtle] = {kHudTextDim};
++    mixer[ui::kColorSysOnSurfaceSecondary] = {kHudTextDim};
++    mixer[ui::kColorSysOnSurfaceVariant] = {kHudTextDim};
++    mixer[ui::kColorSysPrimary] = {kHudCyan};              // toggles, links, focus
++    mixer[ui::kColorSysOnPrimary] = {kHudSurface};
++    mixer[ui::kColorSysPrimaryContainer] = {kHudTabActive}; // selected nav item
++    mixer[ui::kColorSysOnPrimaryContainer] = {kHudMagenta};
++    mixer[ui::kColorSysTonalContainer] = {kHudContainerHi};
++    mixer[ui::kColorSysOutline] = {kHudBorder};
++    mixer[ui::kColorSysTonalOutline] = {kHudBorder};
++    // Surface elevation ladder — bind to the scheme so the toolbar, footer and
++    // every "elevated" surface stay near-black instead of blending to a tint.
++    // (kColorToolbar := kColorSysBase, NTP footer := kColorSysSurface2, etc.)
++    mixer[ui::kColorSysSurface1] = {kHudSurface};
++    mixer[ui::kColorSysSurface2] = {kHudFrame};
++    mixer[ui::kColorSysSurface3] = {kHudContainer};
++    mixer[ui::kColorSysSurface4] = {kHudContainer};
++    mixer[ui::kColorSysSurface5] = {kHudContainerHi};
++    mixer[ui::kColorSysSurfaceNumberedForeground] = {kHudFrame};
++    // New-tab page + its footer bar (the purple bottom strip).
++    mixer[kColorNewTabPageBackground] = {kHudSurface};
++    mixer[kColorNewTabFooterBackground] = {kHudFrame};
+   }
+ 
    // Apply high contrast recipes if necessary.
-   if (!ShouldApplyHighContrastColors(key)) {
-     return;

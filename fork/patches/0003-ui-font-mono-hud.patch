@@ -1,0 +1,18 @@
+diff --git a/ui/base/resource/resource_bundle.cc b/ui/base/resource/resource_bundle.cc
+index 73e2f1e749..f83c267061 100644
+--- a/ui/base/resource/resource_bundle.cc
++++ b/ui/base/resource/resource_bundle.cc
+@@ -1131,8 +1131,11 @@ void ResourceBundle::InitDefaultFontList() {
+   // after every client gets started using a FontList instead of a Font.
+   gfx::PlatformFontSkia::SetDefaultFontDescription(font_family);
+ #else
+-  // Use a single default font as the default font list.
+-  gfx::FontList::SetDefaultFontDescription(std::string());
++  // zbrowser HUD: drive ALL native chrome UI text with the cyberpunk mono
++  // typeface. "Share Tech Mono" (installed to ~/Library/Fonts) matches the
++  // strykelang HUD; "Monaco" is a guaranteed-present monospace fallback so the
++  // chrome is always mono even before the custom font is installed.
++  gfx::FontList::SetDefaultFontDescription("Share Tech Mono, Monaco, 13px");
+ #endif
+ }
+ 

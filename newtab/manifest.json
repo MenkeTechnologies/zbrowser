@@ -4,6 +4,7 @@
   "short_name": "zbrowser-newtab",
   "version": "1.0.0",
   "description": "Cyberpunk new-tab page for zbrowser — neon clock, omnibox search, quick-launch tiles.",
+  "permissions": ["nativeMessaging"],
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   }

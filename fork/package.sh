@@ -19,12 +19,20 @@ BASE_DIR=$STATE/base
 os=$(uname -s)
 case "$os" in
   Darwin)
-    APP=$(find "$OUTDIR" -maxdepth 1 -name 'Chromium.app' -type d | head -1)
-    [[ -d $APP ]] || { echo "package: Chromium.app not found in $OUTDIR" >&2; exit 1; }
+    # The 0006 branding patch renames the bundle to zbrowser.app (and its
+    # executable to `zbrowser`); an unbranded build yields Chromium.app. Match
+    # whichever main bundle exists, excluding the Helper bundles.
+    APP=$(find "$OUTDIR" -maxdepth 1 -name '*.app' -type d ! -name '*Helper*' | head -1)
+    [[ -d $APP ]] || { echo "package: no app bundle found in $OUTDIR" >&2; exit 1; }
+    APP_NAME=$(basename "$APP")                       # zbrowser.app | Chromium.app
+    # Derive the real executable name from the bundle instead of hardcoding it.
+    EXE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
     mkdir -p "$BASE_DIR"
-    rm -rf "$BASE_DIR/fork"
-    cp -R "$APP" "$BASE_DIR/fork-Chromium.app"
-    BIN="$BASE_DIR/fork-Chromium.app/Contents/MacOS/Chromium"
+    # Install under the bundle's own name (zbrowser.app) — no "fork-" prefix, so
+    # Finder / Dock / ⌘-Tab all read "zbrowser". base.version records the fork.
+    rm -rf "$BASE_DIR"/fork-*.app "$BASE_DIR/$APP_NAME"
+    cp -R "$APP" "$BASE_DIR/$APP_NAME"
+    BIN="$BASE_DIR/$APP_NAME/Contents/MacOS/$EXE"
     ;;
   Linux)
     BIN_SRC="$OUTDIR/chrome"

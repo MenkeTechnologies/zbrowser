@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "zbrowser HUD Internal",
+  "version": "0.1.0",
+  "description": "Cyberpunk HUD skin + 8-scheme picker for chrome:// internal pages.",
+  "permissions": ["storage", "nativeMessaging"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{
+    "matches": ["chrome://*/*"],
+    "exclude_matches": ["chrome://newtab/*", "chrome://new-tab-page/*", "chrome://newtab-footer/*"],
+    "js": ["schemes.js", "hud.js"],
+    "run_at": "document_start",
+    "all_frames": true
+  }]
+}
