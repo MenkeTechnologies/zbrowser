@@ -28,7 +28,10 @@
   }
   function setScheme(name) {
     apply(name);
+    // native host -> ~/.zbrowser/hud-scheme (drives the compiled color mixer)
     try { chrome.runtime.sendNativeMessage(HOST, { scheme: name }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    // storage bus -> the chrome:// theme content scripts follow live
+    try { if (chrome.storage && chrome.storage.local) chrome.storage.local.set({ zb_scheme: name }); } catch (e) {}
   }
 
   // picker
@@ -64,29 +67,49 @@
   // Shared nav bar so the (untypeable) extension URLs don't matter — click to
   // move between our HUD pages. (chrome://extensions|settings|version still work
   // when typed — they redirect here.)
+  // Our own HUD pages (extension URLs, linked directly).
   var PAGES = [['EXTENSIONS', 'extensions.html'], ['SETTINGS', 'settings.html'],
     ['HISTORY', 'history.html'], ['DOWNLOADS', 'downloads.html'], ['BOOKMARKS', 'bookmarks.html'],
-    ['SYSTEM', 'version.html'], ['NEW TAB', null]];
+    ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
+  // Chrome pages we can't rewrite (native + scheme-themed). Extension pages can't
+  // hyperlink chrome:// URLs (blocked), so these open through the tabs API.
+  var NATIVE_PAGES = [['FLAGS', 'chrome://flags'], ['DISCARDS', 'chrome://discards'],
+    ['DNS', 'chrome://net-internals/#dns'], ['PASSWORDS', 'chrome://password-manager'],
+    ['GPU', 'chrome://gpu'], ['NET', 'chrome://net-internals'], ['PREFS', 'chrome://prefs-internals']];
+
+  function navLink(label, target, cur) {
+    var a = document.createElement('a');
+    var isOwn = target && target.indexOf('chrome://') !== 0;
+    a.className = 'xt-navlink' + (isOwn && target === cur ? ' active' : '') + (isOwn ? '' : ' native');
+    a.textContent = label;
+    if (isOwn) {
+      a.href = chrome.runtime.getURL('pages/' + target);
+    } else {
+      // chrome:// (incl. newtab) — can't be hyperlinked from an extension page.
+      a.href = '#';
+      a.title = target;
+      a.onclick = function (e) { e.preventDefault(); try { chrome.tabs.create({ url: target }); } catch (ex) {} };
+    }
+    return a;
+  }
   function buildNav() {
     var bar = document.querySelector('.xt-topbar');
     if (!bar || bar.querySelector('.xt-nav')) return;
     var nav = document.createElement('nav'); nav.className = 'xt-nav';
     var cur = location.pathname.split('/').pop();
-    PAGES.forEach(function (p) {
-      var a = document.createElement('a');
-      a.className = 'xt-navlink' + (p[1] === cur ? ' active' : '');
-      a.textContent = p[0];
-      a.href = p[1] ? chrome.runtime.getURL('pages/' + p[1]) : 'chrome://newtab';
-      nav.appendChild(a);
-    });
+    PAGES.forEach(function (p) { nav.appendChild(navLink(p[0], p[1], cur)); });
+    var sep = document.createElement('span'); sep.className = 'xt-nav-sep'; sep.textContent = '·';
+    nav.appendChild(sep);
+    NATIVE_PAGES.forEach(function (p) { nav.appendChild(navLink(p[0], p[1], cur)); });
     var search = bar.querySelector('.xt-search');
     if (search) bar.insertBefore(nav, search); else bar.appendChild(nav);
   }
 
   function boot() {
     getScheme(apply);
-    if (document.body) { buildPicker(); buildNav(); }
-    else document.addEventListener('DOMContentLoaded', function () { buildPicker(); buildNav(); });
+    // No floating picker — scheme is chosen from the nav's SETTINGS page.
+    if (document.body) { buildNav(); }
+    else document.addEventListener('DOMContentLoaded', function () { buildNav(); });
     setInterval(function () { getScheme(function (s) { if (s !== applied) apply(s); }); }, 1500);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

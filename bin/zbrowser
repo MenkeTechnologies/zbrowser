@@ -52,4 +52,5 @@ exec "$BASE" \
   --no-first-run \
   --no-default-browser-check \
   --homepage="chrome://newtab" \
+  --disable-features=NtpFooter \
   "$@"

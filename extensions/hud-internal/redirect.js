@@ -1,18 +1,16 @@
 /* zbrowser HUD: intercept Chrome's internal pages and swap in our own HUD pages.
  * Runs at document_start so Chrome's WebUI never renders. Extend MAP to add pages. */
 (function () {
+  // Only replace pages we can make FUNCTIONAL. Pages with no extension API
+  // (flags, discards, dns, password-manager, …) are left native and merely
+  // skinned by the content script — replacing them with a shell loses features.
   var MAP = [
     ['chrome://extensions', 'pages/extensions.html'],
     ['chrome://settings', 'pages/settings.html'],
     ['chrome://history', 'pages/history.html'],
     ['chrome://downloads', 'pages/downloads.html'],
     ['chrome://bookmarks', 'pages/bookmarks.html'],
-    ['chrome://version', 'pages/version.html'],
-    // no extension API — HUD shell:
-    ['chrome://flags', 'GENERIC'],
-    ['chrome://discards', 'GENERIC'],
-    ['chrome://dns', 'GENERIC'],
-    ['chrome://password-manager', 'GENERIC']
+    ['chrome://version', 'pages/version.html']
   ];
   var here = location.href;
   for (var i = 0; i < MAP.length; i++) {
