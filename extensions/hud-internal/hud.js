@@ -93,6 +93,10 @@
     /* neon on real hyperlinks only — NOT nav/menu items (they own their tokens,',
      * else selected nav goes cyan-text-on-cyan and vanishes) */
     'a[href]:not(.cr-nav-menu-item):not([role="menuitem"]):not([role="tab"]) { color: var(--cyan) !important; }',
+    /* nav/menu items always readable (regardless of scheme): light text, and',
+     * the selected item gets dark text on a cyan pill so it never goes dark-on-dark */
+    '.cr-nav-menu-item, [role="menuitem"], cr-menu-selector a { color: var(--text) !important; }',
+    '.cr-nav-menu-item.selected, [role="menuitem"][selected], .cr-nav-menu-item[selected] { background: var(--cyan) !important; color: var(--bg-primary) !important; }',
     /* mono font on text elements (explicit list avoids clobbering icon fonts) */
     'body, div, span, p, a, h1, h2, h3, h4, h5, h6, ul, ol, li, td, th, dt, dd, label,' +
     ' button, input, textarea, select, code, pre, b, strong, em, small, cr-button, cr-input,' +

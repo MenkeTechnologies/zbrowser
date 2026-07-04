@@ -1,47 +1,111 @@
 diff --git a/front_end/design_system_tokens.css b/front_end/design_system_tokens.css
-index de3f89a652..cd8c3c4d45 100644
+index de3f89a652..0f3be3fa00 100644
 --- a/front_end/design_system_tokens.css
 +++ b/front_end/design_system_tokens.css
-@@ -1059,3 +1059,42 @@
+@@ -1059,3 +1059,57 @@
    --ref-palette-indigo99: rgb(255 251 255 / 100%);
    --ref-palette-indigo100: rgb(255 255 255 / 100%);
  }
 +
 +/* zbrowser HUD: force the strykelang cyberpunk palette onto DevTools, overriding
 + * the default grey dark theme. Appended last so these win the cascade. */
-+:root,
-+:root.theme-with-dark-background {
-+  --sys-color-base: #05050a;
-+  --sys-color-surface: #05050a;
-+  --sys-color-surface1: #0a0a14;
-+  --sys-color-surface2: #0d0d1a;
-+  --sys-color-surface3: #12122a;
-+  --sys-color-surface4: #12122a;
-+  --sys-color-surface5: #16163a;
-+  --sys-color-cdt-base-container: #0a0a14;
-+  --sys-color-base-container: #0d0d1a;
-+  --sys-color-base-container-elevated: #12122a;
-+  --sys-color-surface-variant: #0d0d1a;
-+  --sys-color-neutral-container: #0d0d1a;
-+  --sys-color-omnibox-container: #0d0d1a;
-+  --sys-color-divider: #1a1a3e;
-+  --sys-color-on-surface: #e0f0ff;
-+  --sys-color-on-surface-subtle: #7a8ba8;
-+  --sys-color-on-surface-secondary: #9a86c8;
-+  --sys-color-on-base: #e0f0ff;
-+  --sys-color-on-base-divider: #1a1a3e;
-+  --sys-color-primary: #05d9e8;
-+  --sys-color-primary-bright: #05d9e8;
-+  --sys-color-on-primary: #05050a;
-+  --sys-color-secondary: #ff2a6d;
-+  --sys-color-tonal-container: #1a1a3e;
-+  --sys-color-on-tonal-container: #05d9e8;
-+  --sys-color-tonal-outline: #2a1a4e;
-+  --sys-color-outline: #2a1a4e;
-+  --sys-color-state-hover-on-subtle: #12122a;
-+  --sys-color-state-focus-highlight: #1a1a3e;
-+  --sys-color-inverse-surface: #e0f0ff;
-+  --sys-color-inverse-on-surface: #05050a;
-+  --sys-color-token-property-special: #ff2a6d;
-+  --sys-color-token-variable: #05d9e8;
++/* Scheme key-colors — active only when a zbrowser scheme is chosen in the
++ * DevTools Theme dropdown (ThemeSupport sets data-zbhud on <html>). Default
++ * (cyberpunk) key-colors; only ~9 vars change per scheme. Without data-zbhud,
++ * DevTools' normal Light/Dark/Auto themes are untouched. */
++:root[data-zbhud] {
++  --zb-bg:#05050a; --zb-bg2:#0a0a14; --zb-card:#0d0d1a; --zb-hi:#12122a;
++  --zb-text:#e0f0ff; --zb-dim:#7a8ba8; --zb-accent:#ff2a6d; --zb-cyan:#05d9e8; --zb-border:#1a1a3e;
 +}
++:root[data-zbhud="midnight"]{--zb-bg:#020617;--zb-bg2:#0f172a;--zb-card:#1e293b;--zb-hi:#334155;--zb-text:#e2e8f0;--zb-dim:#94a3b8;--zb-accent:#7c3aed;--zb-cyan:#38bdf8;--zb-border:#334155;}
++:root[data-zbhud="matrix"]{--zb-bg:#000500;--zb-bg2:#001a00;--zb-card:#002a00;--zb-hi:#003a00;--zb-text:#d4ffd4;--zb-dim:#7ccc7c;--zb-accent:#00ff41;--zb-cyan:#00ffcc;--zb-border:#004d00;}
++:root[data-zbhud="ember"]{--zb-bg:#0a0503;--zb-bg2:#1a0f05;--zb-card:#27150a;--zb-hi:#3a1f0f;--zb-text:#fed7aa;--zb-dim:#d97706;--zb-accent:#f97316;--zb-cyan:#fbbf24;--zb-border:#4a2c17;}
++:root[data-zbhud="arctic"]{--zb-bg:#020617;--zb-bg2:#0c1424;--zb-card:#0f1e33;--zb-hi:#1e2f4d;--zb-text:#e0f2fe;--zb-dim:#7dd3fc;--zb-accent:#60a5fa;--zb-cyan:#22d3ee;--zb-border:#1e3a5f;}
++:root[data-zbhud="crimson"]{--zb-bg:#0a0506;--zb-bg2:#140a0c;--zb-card:#1a0d10;--zb-hi:#2a1318;--zb-text:#ffe4e6;--zb-dim:#b08a92;--zb-accent:#e11d48;--zb-cyan:#2dd4bf;--zb-border:#3e1a22;}
++:root[data-zbhud="toxic"]{--zb-bg:#07090a;--zb-bg2:#0c0f0a;--zb-card:#0f130c;--zb-hi:#161b10;--zb-text:#e8ffd0;--zb-dim:#8a9a6a;--zb-accent:#c6ff00;--zb-cyan:#00e5ff;--zb-border:#2a3a1a;}
++:root[data-zbhud="vapor"]{--zb-bg:#0d0814;--zb-bg2:#140d1f;--zb-card:#1a1228;--zb-hi:#241836;--zb-text:#f0e6ff;--zb-dim:#a99cc4;--zb-accent:#ff6ec7;--zb-cyan:#72f1ff;--zb-border:#2e2142;}
++/* Map DevTools sys-color tokens onto the scheme key-colors (wins over host inline). */
++:root[data-zbhud] {
++  --sys-color-base: var(--zb-bg) !important;
++  --sys-color-surface: var(--zb-bg) !important;
++  --sys-color-surface1: var(--zb-bg2) !important;
++  --sys-color-surface2: var(--zb-card) !important;
++  --sys-color-surface3: var(--zb-hi) !important;
++  --sys-color-surface4: var(--zb-hi) !important;
++  --sys-color-surface5: var(--zb-hi) !important;
++  --sys-color-cdt-base-container: var(--zb-bg2) !important;
++  --sys-color-base-container: var(--zb-card) !important;
++  --sys-color-base-container-elevated: var(--zb-hi) !important;
++  --sys-color-surface-variant: var(--zb-card) !important;
++  --sys-color-neutral-container: var(--zb-card) !important;
++  --sys-color-omnibox-container: var(--zb-card) !important;
++  --sys-color-divider: var(--zb-border) !important;
++  --sys-color-on-surface: var(--zb-text) !important;
++  --sys-color-on-surface-subtle: var(--zb-dim) !important;
++  --sys-color-on-surface-secondary: var(--zb-dim) !important;
++  --sys-color-on-base: var(--zb-text) !important;
++  --sys-color-on-base-divider: var(--zb-border) !important;
++  --sys-color-primary: var(--zb-cyan) !important;
++  --sys-color-primary-bright: var(--zb-cyan) !important;
++  --sys-color-on-primary: var(--zb-bg) !important;
++  --sys-color-secondary: var(--zb-accent) !important;
++  --sys-color-tonal-container: var(--zb-hi) !important;
++  --sys-color-on-tonal-container: var(--zb-cyan) !important;
++  --sys-color-tonal-outline: var(--zb-border) !important;
++  --sys-color-outline: var(--zb-border) !important;
++  --sys-color-state-hover-on-subtle: var(--zb-hi) !important;
++  --sys-color-state-focus-highlight: var(--zb-border) !important;
++  --sys-color-inverse-surface: var(--zb-text) !important;
++  --sys-color-inverse-on-surface: var(--zb-bg) !important;
++  --sys-color-token-property-special: var(--zb-accent) !important;
++  --sys-color-token-variable: var(--zb-cyan) !important;
++}
+diff --git a/front_end/entrypoints/main/main-meta.ts b/front_end/entrypoints/main/main-meta.ts
+index 35820fa4d6..2db05792d8 100644
+--- a/front_end/entrypoints/main/main-meta.ts
++++ b/front_end/entrypoints/main/main-meta.ts
+@@ -621,7 +621,7 @@ Common.Settings.registerSettingExtension({
+   title: i18nLazyString(UIStrings.theme),
+   settingName: 'ui-theme',
+   settingType: Common.Settings.SettingType.ENUM,
+-  defaultValue: 'systemPreferred',
++  defaultValue: 'zbhud-cyberpunk',
+   reloadRequired: false,
+   options: [
+     {
+@@ -639,6 +639,15 @@ Common.Settings.registerSettingExtension({
+       text: i18nLazyString(UIStrings.darkCapital),
+       value: 'dark',
+     },
++    // zbrowser HUD cyberpunk schemes.
++    {title: i18n.i18n.lockedLazyString('HUD · Cyberpunk'), text: i18n.i18n.lockedLazyString('HUD · Cyberpunk'), value: 'zbhud-cyberpunk'},
++    {title: i18n.i18n.lockedLazyString('HUD · Midnight'), text: i18n.i18n.lockedLazyString('HUD · Midnight'), value: 'zbhud-midnight'},
++    {title: i18n.i18n.lockedLazyString('HUD · Matrix'), text: i18n.i18n.lockedLazyString('HUD · Matrix'), value: 'zbhud-matrix'},
++    {title: i18n.i18n.lockedLazyString('HUD · Ember'), text: i18n.i18n.lockedLazyString('HUD · Ember'), value: 'zbhud-ember'},
++    {title: i18n.i18n.lockedLazyString('HUD · Arctic'), text: i18n.i18n.lockedLazyString('HUD · Arctic'), value: 'zbhud-arctic'},
++    {title: i18n.i18n.lockedLazyString('HUD · Crimson'), text: i18n.i18n.lockedLazyString('HUD · Crimson'), value: 'zbhud-crimson'},
++    {title: i18n.i18n.lockedLazyString('HUD · Toxic'), text: i18n.i18n.lockedLazyString('HUD · Toxic'), value: 'zbhud-toxic'},
++    {title: i18n.i18n.lockedLazyString('HUD · Vapor'), text: i18n.i18n.lockedLazyString('HUD · Vapor'), value: 'zbhud-vapor'},
+   ],
+   tags: [
+     i18nLazyString(UIStrings.darkLower),
+diff --git a/front_end/ui/legacy/theme_support/ThemeSupport.ts b/front_end/ui/legacy/theme_support/ThemeSupport.ts
+index 85bda316b0..840d4059d9 100644
+--- a/front_end/ui/legacy/theme_support/ThemeSupport.ts
++++ b/front_end/ui/legacy/theme_support/ThemeSupport.ts
+@@ -157,6 +157,15 @@ export class ThemeSupport extends EventTarget {
+ 
+     const useSystemPreferred = this.setting.get() === 'systemPreferred' || isForcedColorsMode;
+     this.#themeName = useSystemPreferred ? systemPreferredTheme : this.setting.get();
++    // zbrowser HUD: values like 'zbhud-matrix' are dark themes whose palette is
++    // driven by [data-zbhud] in design_system_tokens.css.
++    const zbMatch = /^zbhud-(.+)$/.exec(this.#themeName);
++    if (zbMatch) {
++      document.documentElement.setAttribute('data-zbhud', zbMatch[1]);
++      this.#themeName = 'dark';
++    } else {
++      document.documentElement.removeAttribute('data-zbhud');
++    }
+     document.documentElement.classList.toggle('theme-with-dark-background', this.#themeName === 'dark');
+ 
+     const useChromeTheme = Common.Settings.moduleSetting('chrome-theme-colors').get();
