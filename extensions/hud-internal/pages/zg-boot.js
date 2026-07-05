@@ -51,7 +51,7 @@
   function isDefaultCmd(e) { return String((e && e.id) || '').indexOf('def-') === 0; }
   function bootCustomItems(list) {
     return (list || []).map(function (e) {
-      return { icon: e.icon || '✦', label: e.label, hint: e.keyword || e.type, user: !isDefaultCmd(e), run: function () { runCustomBoot(e, ''); } };
+      return { icon: e.icon || '✦', label: e.label, hint: e.keyword || e.type, keyword: e.keyword || '', user: !isDefaultCmd(e), run: function () { runCustomBoot(e, ''); } };
     });
   }
 

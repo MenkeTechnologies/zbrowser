@@ -259,7 +259,7 @@
   function customItems(list) {
     return (list || []).map(function (e) {
       return { icon: e.icon || '✦', label: e.label, detail: e.detail || (e.keyword ? e.keyword + ' …' : typeLabel(e.type)),
-        user: !isDefaultCmd(e), run: function () { runCustom(e, ''); } };
+        keyword: e.keyword || '', user: !isDefaultCmd(e), run: function () { runCustom(e, ''); } };
     });
   }
   function customProvider(q) {
@@ -270,7 +270,7 @@
     var out = [];
     customCache.forEach(function (e) {
       if (e.keyword && e.keyword.toLowerCase() === kw) {
-        out.push({ icon: e.icon || '✦', label: e.label + (rest ? ': ' + rest : ''), detail: e.detail || typeLabel(e.type), user: !isDefaultCmd(e),
+        out.push({ icon: e.icon || '✦', label: e.label + (rest ? ': ' + rest : ''), detail: e.detail || typeLabel(e.type), user: !isDefaultCmd(e), top: true,
           run: function () { runCustom(e, rest); } });
       }
     });
