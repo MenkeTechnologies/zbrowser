@@ -112,13 +112,16 @@ fork/build.sh          ~/zwire-chromium/src  # the long compile
 fork/package.sh        ~/zwire-chromium/src/out/zwire
 ```
 
-All **7** HUD patches are **authored** against the pinned tag (`150.0.7871.46`)
+All **9** HUD patches are **authored** against the pinned tag (`150.0.7871.46`)
 and verified apply-clean: sharp 2px tabs (`tab_style_views.cc`), the cyberpunk
 palette on frame/toolbar/tabs/omnibox (`chrome_color_mixer.cc`), the Share Tech
 Mono / Monaco UI font (`resource_bundle.cc`), a neon cyan under-toolbar line
 (`toolbar_view.cc`), a sharp omnibox field (`location_bar_view.cc`), `zwire`
-product strings (`BRANDING`), and the 8 HUD schemes in the DevTools Theme
-dropdown (`design_system_tokens.css` + `main-meta.ts` + `ThemeSupport.ts`).
+product strings (`BRANDING`), the 8 HUD schemes in the DevTools Theme
+dropdown (`design_system_tokens.css` + `main-meta.ts` + `ThemeSupport.ts`),
+allow-framing any site so the `ztmux` overlay can iframe pages
+(`ancestor_throttle.cc`), and extension-command focus hand-off so the ⌘K
+palette is typeable from the omnibox (`extension_keybinding_registry_views.cc`).
 Apply-clean proves the diff context matches; `fork/build.sh` is the compile gate.
 See [`fork/README.md`](fork/README.md) and
 [`fork/patches/README.md`](fork/patches/README.md).

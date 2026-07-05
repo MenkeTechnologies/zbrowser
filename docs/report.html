@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
-  <meta name="description" content="zwire — Engineering report. Chromium/Blink rebranded: a 7-patch HUD fork series (15 hunks, 26,862 bytes) authored against Chromium tag 150.0.7871.46, four in-tree extensions (three launcher-preloaded), and an 8-scheme runtime HUD skin.">
+  <meta name="description" content="zwire — Engineering report. Chromium/Blink rebranded: a 9-patch HUD fork series (18 hunks, 30,723 bytes) authored against Chromium tag 150.0.7871.46, four in-tree extensions (three launcher-preloaded), and an 8-scheme runtime HUD skin.">
   <title>zwire &mdash; Engineering Report</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -61,7 +61,7 @@
             <a href="https://github.com/MenkeTechnologies/zwire/tree/main/fork" target="_blank" rel="noopener noreferrer">fork/</a>
           </nav>
           <p style="margin:0.35rem 0 0;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text-dim);letter-spacing:0.03em;opacity:0.8;">
-            Chromium/Blink rebranded &middot; runtime base = latest snapshot (revision-pinned) &middot; fork series targets tag <code>150.0.7871.46</code> &middot; repo <code>51fd82be09</code> &middot; 7 patches / 15 hunks &middot; 4 extensions &middot; 8-scheme HUD
+            Chromium/Blink rebranded &middot; runtime base = latest snapshot (revision-pinned) &middot; fork series targets tag <code>150.0.7871.46</code> &middot; repo <code>694b4341ce</code> &middot; 9 patches / 18 hunks &middot; 4 extensions &middot; 8-scheme HUD
           </p>
         </div>
         <div class="tutorial-toolbar">
@@ -85,13 +85,13 @@
 
       <!-- ═══════════════ SUMMARY ═══════════════ -->
       <h2 class="tutorial-title"><span class="step-hash">&gt;_</span>SUMMARY</h2>
-      <p class="tutorial-subtitle">zwire is a Chromium/Blink browser, rebranded, in two composable layers. The default is a <strong>runtime rebrand</strong> &mdash; a cyberpunk new-tab page, an internal-HUD skin with an 8-scheme picker, and the zpwrchrome power-tool preloaded on a plain Chromium snapshot (revision-pinned, latest by default), nothing to compile. An optional <strong>source fork</strong> removes the theme-extension ceiling &mdash; a Chrome theme changes colors only, so the native tab shape, UI font, and toolbar can't be reached from an extension &mdash; by compiling a patched Chromium: a 7-patch series authored against tag <code>150.0.7871.46</code> and verified apply-clean. The counters below are read from the patch files and the tree at commit <code>51fd82be09</code>; each per-patch "approach" is condensed from <code>fork/patches/README.md</code>, whose anchors were verified against the target file at that exact tag. Apply-clean proves the diff context matches the pinned source; it does <strong>not</strong> prove the C++ compiles &mdash; <code>fork/build.sh</code> is that gate.</p>
+      <p class="tutorial-subtitle">zwire is a Chromium/Blink browser, rebranded, in two composable layers. The default is a <strong>runtime rebrand</strong> &mdash; a cyberpunk new-tab page, an internal-HUD skin with an 8-scheme picker, and the zpwrchrome power-tool preloaded on a plain Chromium snapshot (revision-pinned, latest by default), nothing to compile. An optional <strong>source fork</strong> removes the theme-extension ceiling &mdash; a Chrome theme changes colors only, so the native tab shape, UI font, and toolbar can't be reached from an extension &mdash; by compiling a patched Chromium: a 9-patch series authored against tag <code>150.0.7871.46</code> and verified apply-clean. The counters below are read from the patch files and the tree at commit <code>694b4341ce</code>; each per-patch "approach" is condensed from <code>fork/patches/README.md</code>, whose anchors were verified against the target file at that exact tag. Apply-clean proves the diff context matches the pinned source; it does <strong>not</strong> prove the C++ compiles &mdash; <code>fork/build.sh</code> is that gate.</p>
 
       <div class="stat-grid">
-        <div class="stat-card"><div class="stat-val">7</div><div class="stat-label">Fork Patches</div></div>
-        <div class="stat-card"><div class="stat-val accent">15</div><div class="stat-label">Total Hunks</div></div>
-        <div class="stat-card"><div class="stat-val">26,862</div><div class="stat-label">Patch Bytes</div></div>
-        <div class="stat-card"><div class="stat-val">9</div><div class="stat-label">Chromium Files Touched</div></div>
+        <div class="stat-card"><div class="stat-val">9</div><div class="stat-label">Fork Patches</div></div>
+        <div class="stat-card"><div class="stat-val accent">18</div><div class="stat-label">Total Hunks</div></div>
+        <div class="stat-card"><div class="stat-val">30,723</div><div class="stat-label">Patch Bytes</div></div>
+        <div class="stat-card"><div class="stat-val">11</div><div class="stat-label">Chromium Files Touched</div></div>
         <div class="stat-card"><div class="stat-val green">4</div><div class="stat-label">In-Tree Extensions</div></div>
         <div class="stat-card"><div class="stat-val accent">8</div><div class="stat-label">HUD Color Schemes</div></div>
         <div class="stat-card"><div class="stat-val">150.0.7871.46</div><div class="stat-label">Fork Series Tag</div></div>
@@ -114,8 +114,10 @@
           <tr><td><code>0005-omnibox-hud.patch</code></td><td>location_bar/location_bar_view.cc &middot; <code>ComputeBorderRadius</code></td><td class="num">1</td><td class="num">772</td><td>Clamp the field radius to 2px so the omnibox is the sharp HUD field instead of the rounded pill; background + border come from 0002.</td></tr>
           <tr><td><code>0006-branding-strings.patch</code></td><td>chrome/app/theme/chromium/BRANDING</td><td class="num">1</td><td class="num">918</td><td><code>Chromium</code> &rarr; <code>zwire</code> product names, <code>MenkeTechnologies</code> company, <code>com.menketechnologies.zwire</code> bundle id &mdash; the file the unbranded (<code>is_chrome_branded=false</code>) build reads.</td></tr>
           <tr><td><code>0007-devtools-hud-theme.patch</code></td><td>front_end: design_system_tokens.css<br>entrypoints/main/main-meta.ts<br>ui/legacy/theme_support/ThemeSupport.ts</td><td class="num">4</td><td class="num">7,279</td><td>Add the 8 HUD schemes to the DevTools <strong>Theme</strong> dropdown (default <code>zbhud-cyberpunk</code>). <code>ThemeSupport</code> maps <code>zbhud-&lt;scheme&gt;</code> onto the dark base and stamps <code>[data-zbhud]</code>; without it, stock Light/Dark/Auto are untouched.</td></tr>
+          <tr><td><code>0008-allow-framing.patch</code></td><td>renderer_host/ancestor_throttle.cc &middot; <code>WillStartRequest</code></td><td class="num">1</td><td class="num">1,546</td><td>Bypass <code>X-Frame-Options</code> / <code>frame-ancestors</code> CSP so the <code>ztmux</code> overlay (<code>extensions/hud-internal/ztmux.js</code>) can iframe any site into its N-pane tiling. Replaces the removed <code>0008-tmux-split-prefix</code> patch (native 2-pane split), superseded by the JS overlay.</td></tr>
+          <tr><td><code>0009-ext-command-focus-webcontents.patch</code></td><td>extensions/extension_keybinding_registry_views.cc</td><td class="num">2</td><td class="num">2,315</td><td>When an extension command fires while a chrome UI surface (omnibox/search bar) has focus, hand focus to the page web contents so the &#8984;K palette overlay is typeable.</td></tr>
         </tbody>
-        <tfoot><tr class="total-row"><td>SERIES TOTAL</td><td>9 unique Chromium files</td><td class="num">15</td><td class="num">26,862</td><td>All 7 authored &amp; apply-clean at tag 150.0.7871.46. Compile-verify via <code>fork/build.sh</code> (~100&nbsp;GB checkout, 1&ndash;4&nbsp;hr first build).</td></tr></tfoot>
+        <tfoot><tr class="total-row"><td>SERIES TOTAL</td><td>11 unique Chromium files</td><td class="num">18</td><td class="num">30,723</td><td>All 9 authored &amp; apply-clean at tag 150.0.7871.46. Compile-verify via <code>fork/build.sh</code> (~100&nbsp;GB checkout, 1&ndash;4&nbsp;hr first build).</td></tr></tfoot>
       </table>
 
       <hr class="section-rule">

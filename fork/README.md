@@ -42,7 +42,7 @@ zwire                                            # runs the HUD-chromed fork
 
 ## Status
 
-Pipeline: ready. HUD patches (`patches/series`): **all 7 authored** against the
+Pipeline: ready. HUD patches (`patches/series`): **all 9 authored** against the
 pinned tag `150.0.7871.46` and verified **apply-clean** (`git apply --check`
 against each target file read at that exact tag):
 
