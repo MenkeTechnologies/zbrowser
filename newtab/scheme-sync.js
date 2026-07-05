@@ -9,6 +9,22 @@
   var VAR_KEYS = HUD.VAR_KEYS || [];
   var HOST = 'com.zwire.hud';
   var applied = null;
+  var appliedUi = '';
+
+  // Follow the shared light-mode + effect prefs (set on the HUD settings page,
+  // written to the native file). Each effect ON = class ABSENT, matching ZGui.fx.
+  function applyUi(ui) {
+    ui = ui || {};
+    var key = JSON.stringify(ui);
+    if (key === appliedUi) return;
+    appliedUi = key;
+    var app = document.querySelector('.app') || document.body;
+    app.classList.toggle('no-scanlines', ui.scanlines === false);
+    app.classList.toggle('no-vignette', ui.vignette === false);
+    app.classList.toggle('no-neon-glow', ui.glow === false);
+    app.classList.toggle('no-anim', ui.anim === false);
+    document.documentElement.setAttribute('data-theme', ui.light ? 'light' : 'dark');
+  }
 
   function apply(name) {
     var s = SCHEMES[name];
@@ -29,6 +45,7 @@
         chrome.runtime.sendNativeMessage(HOST, { cmd: 'get' }, function (resp) {
           if (chrome.runtime.lastError) return;
           if (resp && resp.scheme) apply(resp.scheme);
+          if (resp) applyUi(resp.ui);
         });
       }
     } catch (e) {}

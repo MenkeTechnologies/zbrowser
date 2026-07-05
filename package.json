@@ -10,6 +10,14 @@
     "url": "https://github.com/MenkeTechnologies/zwire.git"
   },
   "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "build": "bash scripts/build.sh",
+    "localinstall": "bash scripts/localinstall.sh",
+    "test": "bash scripts/test.sh",
+    "clean": "bash scripts/clean.sh",
+    "bust": "bash scripts/bust.sh",
+    "rebuild": "bash scripts/rebuild.sh",
+    "nuke": "bash scripts/nuke.sh",
     "install-browser": "scripts/install.sh",
     "fetch-base": "scripts/fetch-base.sh",
     "rebrand": "scripts/rebrand-macos.sh",

@@ -7,10 +7,20 @@
   'use strict';
   var sp = chrome.settingsPrivate;
   var FZ = window.ZGui.fzf;
-  var shell, body, prefs = [], query = '';
+  var shell, body, prefs = [], query = '', uiSeeded = false;
 
   function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
   function pretty(s) { return s.replace(/[._]/g, ' ').replace(/\b\w/g, function (m) { return m.toUpperCase(); }); }
+
+  // Push the current light + effect state to the native file so newtab (a
+  // separate extension) follows it — localStorage doesn't cross origins.
+  function publishUi() {
+    if (!window.ZBHUD || !ZBHUD.publishUi) return;
+    var ui = {};
+    try { if (ZGui.colorscheme) ui.light = !!ZGui.colorscheme.isLight(); } catch (e) {}
+    try { if (ZGui.fx) { var a = ZGui.fx.all(); ui.scanlines = a.scanlines; ui.vignette = a.vignette; ui.glow = a.glow; ui.anim = a.anim; } } catch (e) {}
+    ZBHUD.publishUi(ui);
+  }
   function labelOf(key) { var p = key.split('.'); return pretty(p.slice(-2).join(' ')); }
 
   /* -------------------------------------------------------- appearance card */
@@ -22,9 +32,31 @@
       inner.appendChild(ZGui.colorscheme.buildSchemeCards(function () { /* native bridge in zg-boot onApply */ }));
       var lrow = el('label', 'xt-switch full');
       lrow.appendChild(el('span', null, 'Light mode'));
-      var lt = ZGui.toggle({ checked: ZGui.colorscheme.isLight(), onChange: function (on) { ZGui.colorscheme.setLight(on); } });
+      var lt = ZGui.toggle({ checked: ZGui.colorscheme.isLight(), onChange: function (on) { ZGui.colorscheme.setLight(on); publishUi(); } });
       lrow.appendChild(lt.el); inner.appendChild(lrow);
     }
+    return ZGui.card({ body: inner }).el;
+  }
+
+  /* -------------------------------------------------------------- fx card */
+  // The cyberpunk effect toggles (CRT scanlines, bezel vignette, neon glow,
+  // animations) live in ZGui.fx — CSS ships on every page via all.css, but the
+  // toggle UI was never mounted, so they appeared "missing". Render the built-in
+  // toggle row here and bridge the CRT/glow toggles to the legacy crt.js beam +
+  // neonGlow layers so flipping them off actually clears everything on screen.
+  function effectsCard() {
+    if (!window.ZGui.fx) return null;
+    try { ZGui.fx.load(); } catch (e) {}
+    var crtCtl = null; try { if (ZGui.crt) crtCtl = ZGui.crt(); } catch (e) {}
+    var inner = el('div');
+    inner.appendChild(el('div', 'set-h', '// APPEARANCE · EFFECTS'));
+    inner.appendChild(ZGui.fx.buildToggles({ onChange: function (name, on) {
+      if (name === 'scanlines' && crtCtl) { try { crtCtl.set(on); } catch (e) {} }
+      if (name === 'glow' && ZGui.neonGlow) { try { ZGui.neonGlow.set(on); } catch (e) {} }
+      publishUi();
+    } }));
+    // seed the native file from local state ONCE (render() re-runs per keystroke).
+    if (!uiSeeded) { uiSeeded = true; publishUi(); }
     return ZGui.card({ body: inner }).el;
   }
 
@@ -67,6 +99,7 @@
   function render() {
     body.innerHTML = '';
     body.appendChild(appearanceCard());
+    var fxc = effectsCard(); if (fxc) body.appendChild(fxc);
     var groups = {};
     prefs.forEach(function (p) { if (!matches(p)) return; var g = p.key.split('.')[0]; (groups[g] = groups[g] || []).push(p); });
     var keys = Object.keys(groups).sort();

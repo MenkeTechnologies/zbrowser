@@ -107,6 +107,36 @@
   /* ------------------------------------------------------------- key logic */
   function setPending(k) { pending = k; clearTimeout(pendingTimer); pendingTimer = setTimeout(function () { pending = ''; }, 900); }
 
+  // action name -> behaviour. The default key for each lives in the shared
+  // registry (zkeys.js); zb_keys overrides remap key -> action.
+  var FN = {
+    scrollDown: function () { scrollBy(0, 66); }, scrollUp: function () { scrollBy(0, -66); },
+    scrollLeft: function () { scrollBy(-66, 0); }, scrollRight: function () { scrollBy(66, 0); },
+    halfDown: function () { scrollBy(0, halfPage()); }, halfUp: function () { scrollBy(0, -halfPage()); },
+    bottom: function () { window.scrollTo({ top: docHeight() }); }, top: function () { window.scrollTo({ top: 0 }); },
+    middle: function () { window.scrollTo({ top: (docHeight() - window.innerHeight) / 2 }); }, low: function () { window.scrollTo({ top: docHeight() }); },
+    prevTab: function () { tabCmd('prevTab'); }, nextTab: function () { tabCmd('nextTab'); },
+    closeTab: function () { tabCmd('closeTab'); }, newTab: function () { tabCmd('newTab'); },
+    reload: function () { location.reload(); }, histBack: function () { history.back(); }, histFwd: function () { history.forward(); },
+    hint: function () { showHints(false); }, hintNewTab: function () { showHints(true); },
+    gPrefix: function () { setPending('g'); }, zPrefix: function () { setPending('z'); }, yPrefix: function () { setPending('y'); },
+    setMark: function () { setPending('m'); }, jumpMark: function () { setPending('`'); },
+    palette: function () { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); },
+    paletteColon: function () { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); },
+    find: function () { if (window.__zbFindOpen) window.__zbFindOpen(); },
+    vimToggle: function () { enabled = false; toast('vim off (Ctrl/Cmd+\\ to re-enable)'); }
+  };
+  var KEYMAP = {};
+  function buildKeymap(ov) {
+    KEYMAP = {};
+    var reg = window.ZWIRE_KEYMAP;
+    if (reg) reg.categories.forEach(function (c) { c.actions.forEach(function (a) { KEYMAP[(ov && ov[a.name]) || a.def] = a.name; }); });
+    if (!KEYMAP["'"]) KEYMAP["'"] = 'jumpMark';   // 'a also jumps to mark a
+  }
+  buildKeymap({});
+  try { chrome.storage.local.get('zb_keys', function (o) { void chrome.runtime.lastError; buildKeymap((o && o.zb_keys) || {}); }); } catch (e) {}
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_keys) buildKeymap(ch.zb_keys.newValue || {}); }); } catch (e) {}
+
   function onKey(e) {
     if (!enabled) {
       if (e.key === '\\' && (e.metaKey || e.ctrlKey)) { enabled = true; toast('vim on'); e.preventDefault(); }
@@ -150,39 +180,9 @@
       return;
     }
 
-    switch (k) {
-      case 'j': scrollBy(0, 66); break;
-      case 'k': scrollBy(0, -66); break;
-      case 'h': scrollBy(-66, 0); break;
-      case 'l': scrollBy(66, 0); break;
-      case 'd': scrollBy(0, halfPage()); break;
-      case 'u': scrollBy(0, -halfPage()); break;
-      case 'G': window.scrollTo({ top: docHeight() }); break;
-      case 'g': setPending('g'); break;
-      case 'y': setPending('y'); break;
-      case 'z': setPending('z'); break;      // zt / zz / zb
-      case 'm': setPending('m'); break;      // set mark
-      case '`': setPending('`'); break;      // jump to mark
-      case "'": setPending('`'); break;      // 'a also jumps to mark a (vim line-mark)
-      case 'r': location.reload(); break;
-      // vim screen positioning adapted to the whole document (no text cursor):
-      case 'H': window.scrollTo({ top: 0 }); break;                                   // High -> top
-      case 'M': window.scrollTo({ top: (docHeight() - window.innerHeight) / 2 }); break; // Middle
-      case 'L': window.scrollTo({ top: docHeight() }); break;                          // Low -> bottom
-      case '[': history.back(); break;       // history moved off H/L
-      case ']': history.forward(); break;
-      case 'J': tabCmd('prevTab'); break;
-      case 'K': tabCmd('nextTab'); break;
-      case 'x': tabCmd('closeTab'); break;
-      case 't': tabCmd('newTab'); break;
-      case 'f': showHints(false); break;
-      case 'F': showHints(true); break;
-      case ':': if (window.__zbPaletteOpen) window.__zbPaletteOpen(); break;   // vim command-line
-      case 'o': if (window.__zbPaletteOpen) window.__zbPaletteOpen(); break;
-      case '/': if (window.__zbFindOpen) window.__zbFindOpen(); break;
-      case '\\': enabled = false; toast('vim off (Ctrl/Cmd+\\ to re-enable)'); break;
-      default: return;      // don't preventDefault unknown keys
-    }
+    var name = KEYMAP[k];
+    if (!name || !FN[name]) return;   // unknown key — don't preventDefault
+    FN[name]();
     e.preventDefault(); e.stopImmediatePropagation();   // win over site single-key shortcuts
   }
 

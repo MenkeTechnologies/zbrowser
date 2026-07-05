@@ -60,12 +60,13 @@
 
   var PAGES = [['◈', 'Extensions', 'extensions.html'], ['⚙', 'Settings', 'settings.html'],
     ['◷', 'History', 'history.html'], ['★', 'Bookmarks', 'bookmarks.html'],
-    ['⚡', 'CI runs', 'ci.html'], ['⚉', 'System info', 'version.html']];
+    ['⚡', 'CI runs', 'ci.html'], ['⌨', 'Shortcuts', 'keys.html'], ['⌨', 'Extension shortcuts', 'extshortcuts.html'],
+    ['⚉', 'System info', 'version.html']];
   var CHROME = [['+', 'New tab', 'chrome://newtab'], ['▼', 'Downloads', 'chrome://downloads'],
     ['⚑', 'Flags', 'chrome://flags'], ['✧', 'Discards', 'chrome://discards'],
     ['⌗', 'DNS', 'chrome://net-internals/#dns'], ['▤', 'GPU', 'chrome://gpu'],
     ['⇅', 'Net internals', 'chrome://net-internals'], ['⚿', 'Passwords', 'chrome://password-manager'],
-    ['⌨', 'Keyboard shortcuts', 'chrome://extensions/shortcuts'], ['◎', 'Inspect devices', 'chrome://inspect'],
+    ['◎', 'Inspect devices', 'chrome://inspect'],
     ['⇩', 'Net export', 'chrome://net-export'], ['§', 'Policy', 'chrome://policy'],
     ['⊛', 'Components', 'chrome://components'], ['≡', 'All chrome:// pages', 'chrome://about'],
     ['✎', 'Site settings', 'chrome://settings/content']];
@@ -109,6 +110,7 @@
       { icon: '⟳', label: 'Reload page', run: function () { try { location.reload(); } catch (e) {} } },
       { icon: '⧉', label: 'Copy URL', detail: 'this page', run: function () { clip(location.href); } },
       { icon: '⤓', label: 'Copy as Markdown', detail: 'this page', run: function () { clip('[' + document.title + '](' + location.href + ')'); } },
+      { icon: '⌥', label: 'Toggle terminal', detail: 'Ctrl+`', run: function () { try { if (window.toggleTerminalPopup) window.toggleTerminalPopup(); } catch (e) {} } },
       { icon: '◐', label: 'Cycle color scheme', run: cycleScheme },
       { icon: '▭', label: 'Toggle HUD statusbar', run: function () { try { chrome.storage.local.get('zb_status', function (o) { var on = !(o && o.zb_status === false); chrome.storage.local.set({ zb_status: !on }); }); } catch (e) {} } }
     ];
@@ -169,8 +171,9 @@
       out.push({ icon: '↗', label: 'Open ' + q, detail: 'go to site', run: function () { open(/^https?:\/\//.test(q) ? q : 'https://' + q); } });
     }
     // generic web fallback (Alfred-style) — Google + DDG for the raw query.
-    out.push({ icon: '⌕', label: 'Google: ' + q, detail: 'web search', run: function () { open('https://www.google.com/search?q=' + encodeURIComponent(q)); } });
-    out.push({ icon: '⌕', label: 'DuckDuckGo: ' + q, detail: 'web search', run: function () { open('https://duckduckgo.com/?q=' + encodeURIComponent(q)); } });
+    // fallback:true sinks these below any real command/tab/shortcut match.
+    out.push({ icon: '⌕', label: 'Google: ' + q, detail: 'web search', fallback: true, run: function () { open('https://www.google.com/search?q=' + encodeURIComponent(q)); } });
+    out.push({ icon: '⌕', label: 'DuckDuckGo: ' + q, detail: 'web search', fallback: true, run: function () { open('https://duckduckgo.com/?q=' + encodeURIComponent(q)); } });
     return out;
   }
 
@@ -182,8 +185,50 @@
   }
   function shortcutItems(list) {
     return (list || []).map(function (s) {
-      return { icon: '⌨', label: 'Shortcut: ' + s.ext + ' — ' + s.desc, detail: s.keybinding || 'unset · click to set', run: function () { open(extUrl('extensions.html') + '#shortcuts'); } };
+      return { icon: '⌨', label: 'Shortcut: ' + s.ext + ' — ' + s.desc, detail: s.keybinding || 'unset · click to set', secondary: true, run: function () { open(extUrl('extensions.html') + '#shortcuts'); } };
     });
+  }
+  // Extension shortcuts are search-only (there are dozens) — a provider so they
+  // surface when you type but don't flood the empty palette.
+  var shortcutsCache = [];
+  function shortcutProvider(q) {
+    if (!q) return [];
+    var ql = q.toLowerCase();
+    return shortcutItems(shortcutsCache.filter(function (s) { return (s.ext + ' ' + s.desc + ' ' + (s.keybinding || '') + ' keyboard shortcuts').toLowerCase().indexOf(ql) >= 0; })).slice(0, 12);
+  }
+
+  // Chrome's OWN built-in shortcuts are not enumerable by any extension API
+  // (developerPrivate only exposes *extension* commands), so they'd otherwise be
+  // missing from the palette entirely. Curated, platform-aware reference list so
+  // "chrome shortcuts" rank alongside the extension ones. [desc, mac, win/linux].
+  var IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || '');
+  var CHROME_KEYS = [
+    ['New tab', '⌘T', 'Ctrl+T'], ['New window', '⌘N', 'Ctrl+N'],
+    ['New incognito window', '⌘⇧N', 'Ctrl+Shift+N'], ['Close tab', '⌘W', 'Ctrl+W'],
+    ['Reopen last closed tab', '⌘⇧T', 'Ctrl+Shift+T'], ['Next tab', '⌃Tab', 'Ctrl+Tab'],
+    ['Previous tab', '⌃⇧Tab', 'Ctrl+Shift+Tab'], ['Jump to tab 1–8', '⌘1…8', 'Ctrl+1…8'],
+    ['Jump to last tab', '⌘9', 'Ctrl+9'], ['Focus address bar', '⌘L', 'Ctrl+L'],
+    ['Find in page', '⌘F', 'Ctrl+F'], ['Reload', '⌘R', 'Ctrl+R'],
+    ['Hard reload', '⌘⇧R', 'Ctrl+Shift+R'], ['History', '⌘Y', 'Ctrl+H'],
+    ['Downloads', '⌘⇧J', 'Ctrl+J'], ['Bookmark this tab', '⌘D', 'Ctrl+D'],
+    ['Bookmark all tabs', '⌘⇧D', 'Ctrl+Shift+D'], ['Toggle bookmark bar', '⌘⇧B', 'Ctrl+Shift+B'],
+    ['DevTools', '⌘⌥I', 'Ctrl+Shift+I'], ['View source', '⌘⌥U', 'Ctrl+U'],
+    ['Zoom in', '⌘+', 'Ctrl++'], ['Zoom out', '⌘-', 'Ctrl+-'], ['Reset zoom', '⌘0', 'Ctrl+0'],
+    ['Print', '⌘P', 'Ctrl+P'], ['Save page', '⌘S', 'Ctrl+S'],
+    ['Open file', '⌘O', 'Ctrl+O'], ['Back', '⌘[', 'Alt+Left'], ['Forward', '⌘]', 'Alt+Right'],
+    ['Full screen', '⌃⌘F', 'F11'], ['Task manager', '', 'Shift+Esc'],
+    ['Clear browsing data', '⌘⇧⌫', 'Ctrl+Shift+Del']
+  ];
+  function chromeKeyProvider(q) {
+    if (!q) return [];
+    var ql = q.toLowerCase();
+    var out = [];
+    CHROME_KEYS.forEach(function (k) {
+      var key = (IS_MAC ? k[1] : k[2]) || k[2];
+      if (('chrome keyboard shortcuts ' + k[0] + ' ' + key).toLowerCase().indexOf(ql) < 0) return;
+      out.push({ icon: '⌨', label: 'Shortcut: Chrome — ' + k[0], detail: key || '—', secondary: true, run: function () { open(extUrl('keys.html')); } });
+    });
+    return out.slice(0, 12);
   }
   function extItems(exts) {
     var out = [];
@@ -203,12 +248,12 @@
     schemeVars(injectStyle);
     // Open SYNCHRONOUSLY with the static commands so it never depends on an
     // async read — nav always works. Tabs (storage bus) are appended after.
-    try { ZGui.palette.clear(); ZGui.palette.register(items()); if (ZGui.palette.registerProvider) ZGui.palette.registerProvider(searchProvider); ZGui.palette.open(); } catch (ex) {}
+    try { ZGui.palette.clear(); ZGui.palette.register(items()); if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(searchProvider); } ZGui.palette.open(); } catch (ex) {}
     try {
       chrome.storage.local.get(['zb_tabs', 'zb_exts', 'zb_frecent', 'zb_shortcuts'], function (o) {
         void chrome.runtime.lastError;
         try { ZGui.palette.register(frecentItems(o && o.zb_frecent)); } catch (e) {}
-        try { ZGui.palette.register(shortcutItems(o && o.zb_shortcuts)); } catch (e) {}
+        try { shortcutsCache = (o && o.zb_shortcuts) || []; } catch (e) {}
         try { ZGui.palette.register(extItems(o && o.zb_exts)); } catch (e) {}
         try { ZGui.palette.register(tabItems(o && o.zb_tabs)); } catch (e) {}
         try { var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {}
@@ -217,10 +262,16 @@
   }
   window.__zbPaletteOpen = openPalette;   // vim mode ('o'/':') calls this
 
+  var paletteKey = 'k';   // ⌘/Ctrl + <key>, remappable via the Keyboard page (zb_keys.openPalette)
+  try { chrome.storage.local.get('zb_keys', function (o) { void chrome.runtime.lastError; if (o && o.zb_keys && o.zb_keys.openPalette) paletteKey = o.zb_keys.openPalette; }); } catch (e) {}
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_keys) paletteKey = (ch.zb_keys.newValue && ch.zb_keys.newValue.openPalette) || 'k'; }); } catch (e) {}
   document.addEventListener('keydown', function (e) {
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K') && !e.altKey && !e.shiftKey) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === paletteKey.toLowerCase() && !e.altKey && !e.shiftKey) {
       e.preventDefault(); e.stopImmediatePropagation();   // win over site ⌘K (github, etc.)
       openPalette();
+    } else if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '`' || e.code === 'Backquote')) {
+      e.preventDefault(); e.stopImmediatePropagation();    // Ctrl+` → toggle the terminal overlay
+      try { if (window.toggleTerminalPopup) window.toggleTerminalPopup(); } catch (ex) {}
     }
   }, true);
 })();

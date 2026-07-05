@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "zwire HUD Internal",
-  "version": "0.2.8",
+  "version": "0.4.0",
   "description": "Cyberpunk HUD internal pages + 8-scheme picker for zwire.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr2PuA3ZZcP0X/k7dISHkTd6ICgQnAH1aU+q+wuxnHrl4xMopfwRYz5iKESz/p40d/bTq8gEKb2sRizFdB2VDi+/z9V+fMfNZQRIdiZVjmufjR81/POfpVlEZExmMzmjI16m/DnlHwQEpSwZ9wHPfH/n6YtNbHKcxqW58h9J7nykdEPg9LsCCMs3BOU5kxSJN1jqgFM/rJSIbeG9uN0g+3PypmDI+YnpN6J63OMFKEAbQFZDqMJN44lDvvQ72uOjZ8CnfalniujeUSdZ4FHFazn17n5HuPgMnlBmaPSbK/cScL4CgbWimIYuQPygpPnNF0Sx4vDjdWougUZagShrChwIDAQAB",
   "permissions": [
@@ -17,7 +17,8 @@
     "alarms",
     "notifications",
     "developerPrivate",
-    "settingsPrivate"
+    "settingsPrivate",
+    "system.display"
   ],
   "host_permissions": [
     "https://api.github.com/*"
@@ -34,7 +35,8 @@
     {
       "resources": [
         "pages/*",
-        "schemes.js"
+        "schemes.js",
+        "lib/term/*"
       ],
       "matches": [
         "<all_urls>"
@@ -112,6 +114,7 @@
         "lib/zgui-core/webui/util.js",
         "lib/zgui-core/webui/fzf.js",
         "lib/zgui-core/webui/command-palette.js",
+        "zkeys.js",
         "zpalette.js",
         "zvim.js"
       ],
@@ -133,6 +136,30 @@
       "js": [
         "schemes.js",
         "zstatus.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*",
+        "file:///*",
+        "chrome://*/*"
+      ],
+      "exclude_matches": [
+        "chrome://newtab/*",
+        "chrome://new-tab-page/*",
+        "chrome://new-tab-page-third-party/*"
+      ],
+      "css": [
+        "lib/term/xterm.css",
+        "lib/term/terminal.css"
+      ],
+      "js": [
+        "lib/term/xterm.js",
+        "lib/term/terminal.js",
+        "lib/term/zterm-boot.js"
       ],
       "run_at": "document_idle",
       "all_frames": false

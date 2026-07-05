@@ -93,6 +93,20 @@ body {
 @keyframes hscan { 0% { top: -2px; opacity: 0; } 5%,95% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
 @keyframes vscan { 0% { left: -2px; opacity: 0; } 5%,95% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
 
+/* --- shared effect toggles (flipped by scheme-sync.js from the HUD settings page,
+   read off the native file). Effect ON = class ABSENT, mirroring ZGui.fx. --- */
+.app.no-scanlines::after { display: none; }                                   /* CRT scanline grid off */
+.app.no-scanlines .crt-scanline, .app.no-scanlines .crt-scanline-v { display: none; }  /* sweeping beams off */
+.app.no-vignette::before { display: none; }                                   /* bezel vignette off */
+.app.no-anim, .app.no-anim * { animation: none !important; transition: none !important; }
+.app.no-neon-glow, .app.no-neon-glow * { text-shadow: none !important; box-shadow: none !important; filter: none !important; }
+
+/* Light mode: !important beats the inline scheme vars scheme-sync.js sets on :root. */
+:root[data-theme="light"] {
+  --bg-primary: #eef1f7 !important; --bg-card: #ffffff !important;
+  --text: #0a0e14 !important; --text-dim: #556072 !important; --border: #c7cfdd !important;
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: rgba(5, 5, 10, 0.5); }
 ::-webkit-scrollbar-thumb {

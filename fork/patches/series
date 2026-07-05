@@ -10,3 +10,4 @@
 0005-omnibox-hud.patch              # location_bar_view.cc -> HUD field styling (VERIFIED git-apply @150.0.7871.46)
 0006-branding-strings.patch         # chrome/app/theme/chromium/BRANDING -> "zwire" product strings (VERIFIED git-apply @150.0.7871.46)
 0007-devtools-hud-theme.patch       # devtools front_end (3 files) -> 8 HUD schemes in the Theme dropdown (VERIFIED git-apply @150.0.7871.46)
+0008-tmux-split-prefix.patch

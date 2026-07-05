@@ -1,0 +1,123 @@
+diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
+index c5b196b2be..e1a839930a 100644
+--- a/chrome/browser/ui/views/frame/browser_view.cc
++++ b/chrome/browser/ui/views/frame/browser_view.cc
+@@ -324,7 +324,9 @@
+ #include "ui/content_accelerators/accelerator_util.h"
+ #include "ui/display/screen.h"
+ #include "ui/events/event_utils.h"
++#include "ui/events/keycodes/keyboard_codes.h"
+ #include "ui/gfx/animation/animation_runner.h"
++#include "ui/gfx/range/range.h"
+ #include "ui/gfx/canvas.h"
+ #include "ui/gfx/color_utils.h"
+ #include "ui/gfx/geometry/outsets.h"
+@@ -3086,6 +3088,58 @@ void BrowserView::ShowAppMenu() {
+   control->ShowMenu();
+ }
+ 
++// zwire: dispatch a tmux pane command (the key pressed after the Ctrl-B prefix)
++// against the native side-by-side split view.
++void BrowserView::HandleTmuxPrefixKey(const ui::Accelerator& accelerator) {
++  TabStripModel* model = browser_->tab_strip_model();
++  if (!model) {
++    return;
++  }
++  auto other_split_index = [&]() -> std::optional<int> {
++    if (!model->IsActiveTabSplit()) {
++      return std::nullopt;
++    }
++    std::optional<split_tabs::SplitTabId> id =
++        model->GetSplitForTab(model->active_index());
++    if (!id) {
++      return std::nullopt;
++    }
++    gfx::Range range = model->GetSplitData(id.value())->GetIndexRange();
++    const int first = static_cast<int>(range.GetMin());
++    const int second = static_cast<int>(range.GetMax()) - 1;
++    return model->active_index() == first ? second : first;
++  };
++  switch (accelerator.key_code()) {
++    case ui::VKEY_5:      // C-b %  : split (side-by-side; Chromium's only layout)
++    case ui::VKEY_OEM_7:  // C-b "  : split
++      chrome::ExecuteCommand(browser_.get(), IDC_NEW_SPLIT_TAB);
++      break;
++    case ui::VKEY_X:      // C-b x  : close the active pane
++      chrome::ExecuteCommand(browser_.get(), IDC_CLOSE_TAB);
++      break;
++    case ui::VKEY_O:      // C-b o  : focus the other pane
++    case ui::VKEY_OEM_1:  // C-b ;
++    case ui::VKEY_LEFT:   // C-b ←/→ : focus a pane by direction
++    case ui::VKEY_RIGHT:
++      if (std::optional<int> idx = other_split_index()) {
++        model->ActivateTabAt(idx.value());
++      }
++      break;
++    case ui::VKEY_OEM_4:  // C-b [ / {  : swap the two panes
++    case ui::VKEY_OEM_6:  // C-b ] / }
++      if (model->IsActiveTabSplit()) {
++        std::optional<split_tabs::SplitTabId> id =
++            model->GetSplitForTab(model->active_index());
++        if (id) {
++          model->ReverseTabsInSplit(id.value());
++        }
++      }
++      break;
++    default:
++      break;
++  }
++}
++
+ content::KeyboardEventProcessingResult BrowserView::PreHandleKeyboardEvent(
+     const NativeWebKeyboardEvent& event) {
+   if ((event.GetType() != blink::WebInputEvent::Type::kRawKeyDown) &&
+@@ -3103,6 +3157,33 @@ content::KeyboardEventProcessingResult BrowserView::PreHandleKeyboardEvent(
+   ui::Accelerator accelerator =
+       ui::GetAcceleratorFromNativeWebKeyboardEvent(event);
+ 
++  // zwire: tmux-style Ctrl-B prefix drives the native 2-pane split view.
++  // Ctrl-B arms the prefix; the next key is interpreted as a pane command and
++  // consumed so it never reaches web content.
++  if (event.GetType() == blink::WebInputEvent::Type::kRawKeyDown) {
++    if (tmux_prefix_armed_) {
++      const ui::KeyboardCode kc = accelerator.key_code();
++      // Wait for the real command key — ignore lone modifier presses.
++      if (kc == ui::VKEY_SHIFT || kc == ui::VKEY_CONTROL ||
++          kc == ui::VKEY_MENU || kc == ui::VKEY_COMMAND) {
++        return content::KeyboardEventProcessingResult::HANDLED;
++      }
++      tmux_prefix_armed_ = false;
++      if (kc != ui::VKEY_ESCAPE) {
++        HandleTmuxPrefixKey(accelerator);
++      }
++      return content::KeyboardEventProcessingResult::HANDLED;
++    }
++    if (accelerator.key_code() == ui::VKEY_B &&
++        accelerator.modifiers() == ui::EF_CONTROL_DOWN) {
++      tmux_prefix_armed_ = true;
++      // NOT_HANDLED (not consumed) so the event still reaches the page, letting
++      // the HUD statusbar light its prefix indicator. The following command key
++      // is consumed above.
++      return content::KeyboardEventProcessingResult::NOT_HANDLED;
++    }
++  }
++
+   // What we have to do here is as follows:
+   // - If the |browser_| is for an app, do nothing.
+   // - On CrOS if |accelerator| is deprecated, we allow web contents to consume
+diff --git a/chrome/browser/ui/views/frame/browser_view.h b/chrome/browser/ui/views/frame/browser_view.h
+index ef13f8f685..9ec092f5f7 100644
+--- a/chrome/browser/ui/views/frame/browser_view.h
++++ b/chrome/browser/ui/views/frame/browser_view.h
+@@ -1327,6 +1327,11 @@ class BrowserView : public BrowserWindow,
+   // TopControlsSlideControllerChromeOS::OnBeginSliding()).
+   bool did_first_layout_while_top_controls_are_sliding_ = false;
+ 
++  // zwire: tmux-style Ctrl-B prefix for the native split view. When armed, the
++  // next key is dispatched by HandleTmuxPrefixKey() as a pane command.
++  bool tmux_prefix_armed_ = false;
++  void HandleTmuxPrefixKey(const ui::Accelerator& accelerator);
++
+   base::CallbackListSubscription subscription_ =
+       ui::TouchUiController::Get()->RegisterCallback(
+           base::BindRepeating(&BrowserView::TouchModeChanged,

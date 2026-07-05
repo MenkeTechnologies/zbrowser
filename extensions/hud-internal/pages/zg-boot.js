@@ -14,12 +14,13 @@
   // built on chrome.downloads.search would only show the cancelled stubs.
   var PAGES = [['EXTENSIONS', 'extensions.html'], ['SETTINGS', 'settings.html'],
     ['HISTORY', 'history.html'], ['DOWNLOADS', 'chrome://downloads'], ['BOOKMARKS', 'bookmarks.html'],
-    ['CI', 'ci.html'], ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
+    ['CI', 'ci.html'], ['SHORTCUTS', 'keys.html'], ['EXT KEYS', 'extshortcuts.html'],
+    ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
   var NATIVE_PAGES = [['FLAGS', 'chrome://flags'], ['DISCARDS', 'chrome://discards'],
     ['DNS', 'chrome://net-internals/#dns'], ['GPU', 'chrome://gpu'], ['NET', 'chrome://net-internals']];
   // Extra palette-only destinations (not shown as nav buttons): more chrome://
   // internals + the web stores. External (http) targets open in a new tab.
-  var MORE = [['Passwords', 'chrome://password-manager'], ['Keyboard shortcuts', 'chrome://extensions/shortcuts'],
+  var MORE = [['Passwords', 'chrome://password-manager'],
     ['Inspect devices', 'chrome://inspect'], ['Net export', 'chrome://net-export'], ['Policy', 'chrome://policy'],
     ['Components', 'chrome://components'], ['All chrome:// pages', 'chrome://about'],
     ['Site settings', 'chrome://settings/content'], ['Chrome Web Store', 'https://chromewebstore.google.com/'],
@@ -102,6 +103,13 @@
     setInterval(pull, 1500);
   }
 
+  // Publish visual-effect + light-mode prefs to the native file so the OTHER
+  // extensions (newtab) can follow them — same shared bus the scheme rides.
+  // fx/light persist to per-origin localStorage, which newtab can't read.
+  function publishUi(partial) {
+    try { chrome.runtime.sendNativeMessage(HOST, { ui: partial }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+  }
+
   function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
 
   function injectCss() {
@@ -161,12 +169,15 @@
     // pref (localStorage zguiCrt). Forcing {on:true} here re-enabled it on every
     // page load, so toggling it off never stuck. Toggle it from the ⌘K palette.
     try { if (ZGui.crt) crtCtl = ZGui.crt(); } catch (e) {}
+    // Re-apply persisted cyberpunk FX prefs (CRT scanlines, bezel vignette, neon
+    // glow, animations) so a toggle set on the Settings page sticks across pages.
+    try { if (ZGui.fx) ZGui.fx.load(); } catch (e) {}
     // ⌘K / : command palette (ZGui.palette): cross-page nav + this page's
     // commands + every open tab (so it doubles as a tab switcher).
     if (ZGui.palette) {
       var hudCmds = [
-        { icon: '⌂', label: 'Toggle CRT scanlines', hint: 'HUD', run: function () { try { if (crtCtl) crtCtl.toggle(); } catch (e) {} } },
-        { icon: '✦', label: 'Toggle neon glow', hint: 'HUD', run: function () { try { if (ZGui.neonGlow) ZGui.neonGlow.toggle(); } catch (e) {} } }
+        { icon: '⌂', label: 'Toggle CRT scanlines', hint: 'HUD', run: function () { try { var on = ZGui.fx ? ZGui.fx.toggle('scanlines') : (crtCtl ? crtCtl.toggle() : false); if (crtCtl && ZGui.fx) crtCtl.set(on); } catch (e) {} } },
+        { icon: '✦', label: 'Toggle neon glow', hint: 'HUD', run: function () { try { var on = ZGui.fx ? ZGui.fx.toggle('glow') : (ZGui.neonGlow ? ZGui.neonGlow.toggle() : false); if (ZGui.neonGlow && ZGui.fx) ZGui.neonGlow.set(on); } catch (e) {} } }
       ];
       var pageItems = hudCmds.concat(paletteNav()).concat(opts.palette || []);
       var openPal = function () {
@@ -215,5 +226,5 @@
   }
 
   window.ZBHUD = { PAGES: PAGES, NATIVE_PAGES: NATIVE_PAGES, mount: mount, go: go,
-    navButton: navButton, HOST: HOST };
+    navButton: navButton, HOST: HOST, publishUi: publishUi };
 })();

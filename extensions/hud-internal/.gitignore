@@ -1,0 +1,11 @@
+# build artifacts (pnpm build)
+dist/
+
+# python bytecode from the native host
+__pycache__/
+*.pyc
+
+# node
+node_modules/
+
+.DS_Store

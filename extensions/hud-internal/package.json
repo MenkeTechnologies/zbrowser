@@ -1,0 +1,22 @@
+{
+  "name": "zwire-hud-internal",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "description": "zwire HUD internal pages + 8-scheme picker (Chrome extension). pnpm wraps the load-unpacked / native-messaging-host install for parity with the MenkeTechnologies desktop-app script set.",
+  "author": "MenkeTechnologies",
+  "license": "MIT",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "build": "bash scripts/build.sh",
+    "localinstall": "bash scripts/localinstall.sh",
+    "test": "bash scripts/test.sh",
+    "clean": "bash scripts/clean.sh",
+    "bust": "bash scripts/bust.sh",
+    "rebuild": "bash scripts/rebuild.sh",
+    "nuke": "bash scripts/nuke.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

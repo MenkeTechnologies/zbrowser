@@ -58,6 +58,55 @@ seedFromNative();
 try { chrome.runtime.onStartup.addListener(seedFromNative); } catch (e) {}
 try { chrome.runtime.onInstalled.addListener(seedFromNative); } catch (e) {}
 
+// System-stats stream: a persistent native-messaging port to hud_host.py, which
+// streams real machine stats (cpu/mem/net/…) every 2s into zb_sys for the
+// statusbar. The open port also keeps this MV3 worker alive.
+function startSysStream() {
+  try {
+    var port = chrome.runtime.connectNative(HOST);
+    port.onMessage.addListener(function (m) { if (m && m.sys) { try { chrome.storage.local.set({ zb_sys: m.sys }); } catch (e) {} } });
+    port.onDisconnect.addListener(function () { void chrome.runtime.lastError; setTimeout(startSysStream, 5000); });
+    port.postMessage({ cmd: 'sysinfo_start' });
+  } catch (e) { setTimeout(startSysStream, 5000); }
+}
+startSysStream();
+
+// PTY relay for the terminal overlay (a content script — can't connectNative).
+// Sessions are keyed by TAB so the shell SURVIVES page navigation: when the
+// tab's overlay re-injects on the next page it reconnects to the same host PTY.
+// Output produced while no page is attached is buffered and flushed on reconnect.
+var ptySessions = {};   // tabId -> { nat, buf:[], cs, spawned }
+try {
+  chrome.runtime.onConnect.addListener(function (csPort) {
+    if (!csPort || csPort.name !== 'zwire-pty') return;
+    var tabId = csPort.sender && csPort.sender.tab && csPort.sender.tab.id;
+    if (tabId == null) { csPort.disconnect(); return; }
+    var sess = ptySessions[tabId];
+    if (!sess) {
+      var nat;
+      try { nat = chrome.runtime.connectNative(HOST); } catch (e) { csPort.disconnect(); return; }
+      sess = { nat: nat, buf: [], cs: null, spawned: false };
+      ptySessions[tabId] = sess;
+      nat.onMessage.addListener(function (m) {
+        if (sess.cs) { try { sess.cs.postMessage(m); } catch (e) {} }
+        else { sess.buf.push(m); if (sess.buf.length > 500) sess.buf.shift(); }
+      });
+      nat.onDisconnect.addListener(function () { void chrome.runtime.lastError; delete ptySessions[tabId]; });
+    }
+    sess.cs = csPort;
+    var pending = sess.buf; sess.buf = [];
+    pending.forEach(function (m) { try { csPort.postMessage(m); } catch (e) {} });   // flush buffered output
+    csPort.onMessage.addListener(function (m) {
+      if (m && m.cmd === 'pty_spawn') { if (sess.spawned) return; sess.spawned = true; }   // one shell per tab
+      try { sess.nat.postMessage(m); } catch (e) {}
+    });
+    csPort.onDisconnect.addListener(function () { if (sess.cs === csPort) sess.cs = null; });   // keep the shell alive across nav
+  });
+  chrome.tabs.onRemoved.addListener(function (tabId) {
+    var s = ptySessions[tabId]; if (s) { try { s.nat.disconnect(); } catch (e) {} delete ptySessions[tabId]; }
+  });
+} catch (e) {}
+
 // Keep a live list of open tabs in storage so the command palette (a content
 // script) can read it directly — reliable, unlike an async worker round-trip.
 function updateTabs() {
@@ -200,7 +249,14 @@ try {
 // reliable MV3 wakeup (unlike sendMessage to a sleeping worker), so palette
 // navigation / tab-switching always executes.
 chrome.storage.onChanged.addListener(function (changes, area) {
-  if (area !== 'local' || !changes.zb_cmd || !changes.zb_cmd.newValue) return;
+  if (area !== 'local') return;
+  // A scheme written straight to storage (the Settings-page picker in zg-boot
+  // writes zb_scheme + the native file but never messages this worker) must
+  // still be fanned out to zpwrchrome — a separate extension that only learns of
+  // scheme changes over runtime messaging. Without this, picks made in Settings
+  // reach newtab (native-file poll) + HUD content scripts but never zpwrchrome.
+  if (changes.zb_scheme && changes.zb_scheme.newValue) pushToZpwr(changes.zb_scheme.newValue);
+  if (!changes.zb_cmd || !changes.zb_cmd.newValue) return;
   var c = changes.zb_cmd.newValue;
   function active(cb) {
     chrome.tabs.query({ active: true, lastFocusedWindow: true }, function (tabs) {
@@ -234,7 +290,7 @@ chrome.storage.onChanged.addListener(function (changes, area) {
           chrome.tabs.update(all[ni].id, { active: true });
         });
       });
-    }
+    } else if (c.a === 'tmux') { tmuxCmd(c.sub, c); }
   } catch (e) {}
 });
 
@@ -311,4 +367,178 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       return true; // async response
     } catch (e) { sendResponse({ scheme: 'cyberpunk' }); }
   }
+});
+
+/* ===========================================================================
+ * tmux-style pane / window tiling engine.
+ * PANES  = real browser windows, tiled by chrome.windows geometry.
+ * WINDOWS (tmux) = named groups of panes; only the active group is visible,
+ *   the rest are minimized. SESSIONS = the whole thing, persisted to storage.
+ * Driven from the ztmux.js prefix-key content script via zb_cmd {a:'tmux'}.
+ * State is mirrored to zb_tmux for the statusbar.
+ * ======================================================================== */
+var TMUX = { windows: [], active: 0 };
+var WORKAREA = null;
+function loadWorkArea(cb) {
+  try {
+    chrome.system.display.getInfo(function (ds) {
+      void chrome.runtime.lastError;
+      var d = (ds || []).filter(function (x) { return x.isPrimary; })[0] || (ds || [])[0];
+      WORKAREA = (d && d.workArea) || { left: 0, top: 0, width: 1440, height: 820 };
+      if (cb) cb();
+    });
+  } catch (e) { WORKAREA = { left: 0, top: 0, width: 1440, height: 820 }; if (cb) cb(); }
+}
+loadWorkArea();
+
+function curWin() { return TMUX.windows[TMUX.active]; }
+function findPaneWin(winId) { for (var w = 0; w < TMUX.windows.length; w++) if (TMUX.windows[w].panes.indexOf(winId) >= 0) return TMUX.windows[w]; return null; }
+
+// Drop any pane whose browser window has since closed, prune empty groups, and
+// clamp indices — the MV3 worker can be evicted between commands, so restored
+// state must be reconciled against the windows that are actually open now.
+function reconcile(state, openIds) {
+  var open = {}; (openIds || []).forEach(function (id) { open[id] = 1; });
+  var wins = ((state && state.windows) || []).map(function (w) {
+    var panes = (w.panes || []).filter(function (id) { return open[id]; });
+    return {
+      name: w.name, panes: panes, layout: w.layout || 'cols',
+      zoom: panes.indexOf(w.zoom) >= 0 ? w.zoom : null,
+      active: panes.indexOf(w.active) >= 0 ? w.active : (panes[0] || null),
+      sync: !!w.sync
+    };
+  }).filter(function (w) { return w.panes.length; });
+  return { windows: wins, active: Math.min((state && state.active) || 0, Math.max(0, wins.length - 1)) };
+}
+
+function ensureInit(cb) {
+  if (TMUX.windows.length) { cb(); return; }
+  // MV3 worker restarted -> rebuild from persisted state, keeping only still-open
+  // windows; fall back to "current window is the sole pane" when nothing survives.
+  chrome.storage.local.get('zb_tmux_state', function (o) {
+    void chrome.runtime.lastError;
+    var saved = o && o.zb_tmux_state;
+    chrome.windows.getAll({}, function (wins) {
+      void chrome.runtime.lastError;
+      var openIds = (wins || []).map(function (w) { return w.id; });
+      if (saved && saved.windows && saved.windows.length) {
+        var rec = reconcile(saved, openIds);
+        if (rec.windows.length) { TMUX.windows = rec.windows; TMUX.active = rec.active; cb(); return; }
+      }
+      chrome.windows.getLastFocused({}, function (win) {
+        void chrome.runtime.lastError;
+        var id = win && win.id;
+        TMUX.windows = [{ name: '1', panes: id ? [id] : [], layout: 'cols', zoom: null, active: id || null, sync: false }];
+        TMUX.active = 0; cb();
+      });
+    });
+  });
+}
+
+function rectsFor(n, layout) {
+  var W = WORKAREA, out = [], i;
+  if (n <= 0) return out;
+  if (n === 1) return [{ left: W.left, top: W.top, width: W.width, height: W.height }];
+  if (layout === 'cols') { var w = Math.floor(W.width / n); for (i = 0; i < n; i++) out.push({ left: W.left + i * w, top: W.top, width: (i === n - 1 ? W.width - i * w : w), height: W.height }); }
+  else if (layout === 'rows') { var h = Math.floor(W.height / n); for (i = 0; i < n; i++) out.push({ left: W.left, top: W.top + i * h, width: W.width, height: (i === n - 1 ? W.height - i * h : h) }); }
+  else if (layout === 'main-v') { var mw = Math.floor(W.width * 0.6), rn = n - 1, rh = Math.floor(W.height / rn); out.push({ left: W.left, top: W.top, width: mw, height: W.height }); for (i = 0; i < rn; i++) out.push({ left: W.left + mw, top: W.top + i * rh, width: W.width - mw, height: (i === rn - 1 ? W.height - i * rh : rh) }); }
+  else { var cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols), cw = Math.floor(W.width / cols), ch = Math.floor(W.height / rows); for (i = 0; i < n; i++) { var r = Math.floor(i / cols), cI = i % cols; out.push({ left: W.left + cI * cw, top: W.top + r * ch, width: cw, height: ch }); } }
+  return out;
+}
+function upd(id, props) { try { chrome.windows.update(id, props, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+
+function tile() {
+  var win = curWin(); if (!win) { publishTmux(); return; }
+  if (!WORKAREA) { loadWorkArea(tile); return; }
+  // minimize every pane that isn't in the active tmux window
+  TMUX.windows.forEach(function (w, idx) { if (idx !== TMUX.active) w.panes.forEach(function (id) { upd(id, { state: 'minimized' }); }); });
+  var panes = win.panes.filter(Boolean);
+  if (win.zoom && panes.indexOf(win.zoom) >= 0) {
+    panes.forEach(function (id) { id === win.zoom ? upd(id, { state: 'normal', left: WORKAREA.left, top: WORKAREA.top, width: WORKAREA.width, height: WORKAREA.height, focused: true }) : upd(id, { state: 'minimized' }); });
+    publishTmux(); return;
+  }
+  var rects = rectsFor(panes.length, win.layout);
+  panes.forEach(function (id, i) { var r = rects[i]; if (r) upd(id, { state: 'normal', left: r.left, top: r.top, width: r.width, height: r.height }); });
+  if (win.active != null) upd(win.active, { focused: true });
+  publishTmux();
+}
+
+function publishTmux() {
+  try {
+    chrome.storage.local.set({
+      // statusbar projection (counts only)…
+      zb_tmux: {
+        windows: TMUX.windows.map(function (w) { return { name: w.name, panes: w.panes.length, layout: w.layout, zoom: !!w.zoom, sync: !!w.sync }; }),
+        active: TMUX.active, anySync: TMUX.windows.some(function (w) { return w.sync; })
+      },
+      // …and the FULL state, so panes/groups survive an MV3 worker eviction and
+      // ensureInit() can rebuild the tiling instead of forgetting every split.
+      zb_tmux_state: { windows: TMUX.windows, active: TMUX.active }
+    });
+  } catch (e) {}
+}
+
+function tmuxCmd(sub, c) {
+  ensureInit(function () {
+    var win = curWin();
+    if (sub === 'split') {
+      win.layout = (c.dir === 'down') ? 'rows' : 'cols'; win.zoom = null;
+      chrome.windows.create({ focused: true }, function (w) {
+        void chrome.runtime.lastError; if (!w) return;
+        var idx = win.panes.indexOf(win.active);
+        win.panes.splice(idx < 0 ? win.panes.length : idx + 1, 0, w.id); win.active = w.id; tile();
+      });
+    } else if (sub === 'navigate') {
+      var panes = win.panes; if (!panes.length) return;
+      var ci = panes.indexOf(win.active); if (ci < 0) ci = 0;
+      var ni = (c.dir === 'prev' || c.dir === 'left' || c.dir === 'up') ? (ci - 1 + panes.length) % panes.length : (ci + 1) % panes.length;
+      win.active = panes[ni]; upd(win.active, { focused: true }); publishTmux();
+    } else if (sub === 'zoom') { win.zoom = win.zoom ? null : win.active; tile(); }
+    else if (sub === 'closePane') { if (win.active != null) upd_remove(win.active); }
+    else if (sub === 'newWindow') {
+      chrome.windows.create({ focused: true }, function (w) {
+        void chrome.runtime.lastError; if (!w) return;
+        TMUX.windows.push({ name: String(TMUX.windows.length + 1), panes: [w.id], layout: 'cols', zoom: null, active: w.id, sync: false });
+        TMUX.active = TMUX.windows.length - 1; tile();
+      });
+    } else if (sub === 'nextWindow' || sub === 'prevWindow') {
+      if (TMUX.windows.length < 2) return;
+      TMUX.active = sub === 'nextWindow' ? (TMUX.active + 1) % TMUX.windows.length : (TMUX.active - 1 + TMUX.windows.length) % TMUX.windows.length; tile();
+    } else if (sub === 'selectLayout') {
+      var order = ['cols', 'rows', 'main-v', 'grid']; win.layout = order[(order.indexOf(win.layout) + 1) % order.length]; win.zoom = null; tile();
+    } else if (sub === 'syncToggle') { win.sync = !win.sync; publishTmux(); }
+    else if (sub === 'killWindow') { win.panes.slice().forEach(function (id) { upd_remove(id); }); }
+    else if (sub === 'retile') { tile(); }
+  });
+}
+function upd_remove(id) { try { chrome.windows.remove(id, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+
+try {
+  chrome.windows.onRemoved.addListener(function (winId) {
+    var changed = false;
+    TMUX.windows.forEach(function (w) { var i = w.panes.indexOf(winId); if (i >= 0) { w.panes.splice(i, 1); changed = true; if (w.active === winId) w.active = w.panes[Math.max(0, i - 1)] || null; if (w.zoom === winId) w.zoom = null; } });
+    var before = TMUX.windows.length;
+    TMUX.windows = TMUX.windows.filter(function (w) { return w.panes.length; });
+    if (TMUX.windows.length !== before && TMUX.active >= TMUX.windows.length) TMUX.active = Math.max(0, TMUX.windows.length - 1);
+    if (changed) { TMUX.windows.length ? tile() : publishTmux(); }
+  });
+  chrome.windows.onFocusChanged.addListener(function (winId) {
+    if (winId == null || winId < 0) return;
+    var w = findPaneWin(winId); if (w) { w.active = winId; var idx = TMUX.windows.indexOf(w); if (idx >= 0) TMUX.active = idx; publishTmux(); }
+  });
+} catch (e) {}
+
+// synchronize-panes: a pane's content script relays a keystroke; if its tmux
+// window has sync on, fan it out to every SIBLING pane's active tab to replay.
+chrome.runtime.onMessage.addListener(function (msg, sender) {
+  if (!msg || msg.type !== 'zbSync' || !sender || !sender.tab) return;
+  var srcWin = sender.tab.windowId, w = findPaneWin(srcWin);
+  if (!w || !w.sync) return;
+  w.panes.forEach(function (pid) {
+    if (pid === srcWin) return;
+    chrome.tabs.query({ windowId: pid, active: true }, function (tabs) {
+      void chrome.runtime.lastError;
+      if (tabs && tabs[0]) chrome.tabs.sendMessage(tabs[0].id, { type: 'zbSyncApply', key: msg.key, code: msg.code }, function () { void chrome.runtime.lastError; });
+    });
+  });
 });

@@ -19,6 +19,27 @@
   var lastError = '';
   var loading = false;
   var loadedAt = 0;
+  var rateLimitReset = 0;        // ms epoch; set from X-RateLimit-Reset on a 403
+  var openState = {};            // repo -> user's expand/collapse, survives redraws
+  var CACHE_KEY = 'zb_ci_cache';
+  var TTL = 300000;              // 5 min — anon GitHub allows only 60 req/hr, and one
+                                 // sync is ~1+repoLimit requests, so don't hammer it.
+
+  function loadCache(cb) {
+    try {
+      chrome.storage.local.get(CACHE_KEY, function (o) {
+        void chrome.runtime.lastError;
+        var c = o && o[CACHE_KEY];
+        if (c && c.user === CFG.user && c.token === !!CFG.token && Array.isArray(c.runs)) {
+          allRuns = c.runs; loadedAt = c.at || 0;
+        }
+        cb();
+      });
+    } catch (e) { cb(); }
+  }
+  function saveCache() {
+    try { var o = {}; o[CACHE_KEY] = { user: CFG.user, token: !!CFG.token, at: loadedAt, runs: allRuns }; chrome.storage.local.set(o); } catch (e) {}
+  }
 
   function loadCfg(cb) {
     try {
@@ -44,10 +65,14 @@
   function api(path) {
     return fetch('https://api.github.com' + path, { headers: ghHeaders() }).then(function (r) {
       if (!r.ok) {
-        var extra = r.status === 403 ? ' — rate limited, add a token below'
+        if (r.status === 403 || r.status === 429) {
+          var rs = parseInt(r.headers.get('x-ratelimit-reset'), 10);
+          if (rs) rateLimitReset = rs * 1000;
+        }
+        var extra = (r.status === 403 || r.status === 429) ? ' — rate limited, add a token below'
           : r.status === 401 ? ' — bad token'
           : r.status === 404 ? ' — not found (private repo needs a token)' : '';
-        throw new Error('HTTP ' + r.status + extra);
+        var e = new Error('HTTP ' + r.status + extra); e.status = r.status; throw e;
       }
       return r.json();
     });
@@ -68,8 +93,11 @@
       ts: Date.parse(run.run_started_at || run.created_at) || 0, num: run.run_number || 0
     };
   }
-  function fetchAll() {
+  function fetchAll(manual) {
     if (loading) return;
+    // Respect a known rate-limit window for AUTO refreshes so we don't keep
+    // burning 403s; a manual REFRESH always tries (the window may have reset).
+    if (!manual && rateLimitReset && Date.now() < rateLimitReset) { drawTable(); return; }
     loading = true; lastError = ''; drawTable();
     api(reposUrl()).then(function (repos) {
       repos = (repos || []).filter(function (r) { return !r.archived; }).slice(0, CFG.repoLimit);
@@ -80,8 +108,9 @@
       }));
     }).then(function (lists) {
       allRuns = [].concat.apply([], lists).sort(function (a, b) { return b.ts - a.ts; }).slice(0, 100);
-      loading = false; loadedAt = Date.now(); drawTable();
+      loading = false; loadedAt = Date.now(); rateLimitReset = 0; saveCache(); drawTable();
     }).catch(function (e) {
+      // Keep the cached runs on screen (esp. on 403) instead of blanking the page.
       lastError = (e && e.message) || String(e); loading = false; drawTable();
     });
   }
@@ -112,27 +141,15 @@
   var tableHost = document.createElement('div');
   var statusEl = document.createElement('div'); statusEl.className = 'ci-status';
 
-  function drawTable() {
-    // status line
-    var bits = [];
-    if (loading) bits.push('<span>syncing…</span>');
-    if (lastError) bits.push('<span class="err">⚠ ' + esc(lastError) + '</span>');
-    if (!loading && !lastError) bits.push('<span>' + allRuns.length + ' runs · ' + esc(CFG.user) + (CFG.token ? ' · authed' : ' · anon') + (loadedAt ? ' · ' + ago(loadedAt) : '') + '</span>');
-    statusEl.innerHTML = bits.join('');
+  function isBad(r) { return r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'startup_failure'; }
+  function isRunning(r) { return r.status && r.status !== 'completed'; }
+  function glyph(r) { return isRunning(r) ? '◔' : isBad(r) ? '✗' : r.conclusion === 'success' ? '✓' : '○'; }
 
-    tableHost.innerHTML = '';
-    var rows = allRuns.filter(matches);
-    if (!rows.length && !loading) {
-      tableHost.innerHTML = '<div class="ci-hint" style="padding:24px 4px;">' +
-        (lastError ? 'Could not load runs. ' : 'No workflow runs found. ') +
-        'Set your GitHub user (and a token for private repos / higher rate limits) above.</div>';
-      return;
-    }
-    var dt = Z.dataTable(tableHost, {
-      id: 'ci-table', resizable: true, sortScope: 'zb-ci',
+  function repoTable(host, list) {
+    var dt = Z.dataTable(host, {
+      id: 'ci-' + (list[0] && list[0].repo || 'x'), resizable: true, sortScope: 'zb-ci',
       columns: [
         { key: 'st', label: 'STATUS', sortable: false, width: '120px', render: function (r) { return pill(r); } },
-        { key: 'repo', label: 'REPO', width: '150px', render: function (r) { return '<span class="ci-repo">' + esc(r.repo) + '</span>'; } },
         { key: 'wf', label: 'WORKFLOW', render: function (r) {
             var td = '<div class="ci-wf">' + esc(r.wf) + '</div>';
             if (r.title && r.title !== r.wf) td += '<div class="ci-num">' + esc(r.title.slice(0, 80)) + '</div>';
@@ -144,11 +161,49 @@
         { key: 'ts', label: 'WHEN', width: '90px', render: function (r) { return '<span class="ci-when">' + ago(r.ts) + '</span>'; } },
         { key: 'num', label: '#', width: '60px', render: function (r) { return '<span class="ci-num">#' + r.num + '</span>'; } }
       ],
-      rows: rows,
+      rows: list,
       onRowClick: function (r) { if (r.url) try { chrome.tabs.create({ url: r.url }); } catch (e) { window.open(r.url, '_blank'); } }
     });
-    // apply the wide-cell class to the workflow column
-    if (dt && dt.el) dt.el.querySelectorAll('tr').forEach(function (tr) { var td = tr.children[2]; if (td && td.tagName === 'TD') td.classList.add('ci-wfcell'); });
+    if (dt && dt.el) dt.el.querySelectorAll('tr').forEach(function (tr) { var td = tr.children[1]; if (td && td.tagName === 'TD') td.classList.add('ci-wfcell'); });
+  }
+
+  function drawTable() {
+    // status line — keep cached counts visible even when a fetch just errored.
+    var bits = [];
+    if (loading) bits.push('<span>syncing…</span>');
+    if (lastError) {
+      bits.push('<span class="err">⚠ ' + esc(lastError) + (allRuns.length ? ' · showing cached (' + ago(loadedAt) + ')' : '') + '</span>');
+      if (rateLimitReset && Date.now() < rateLimitReset) bits.push('<span>· resets in ' + Math.ceil((rateLimitReset - Date.now()) / 60000) + 'm</span>');
+    }
+    if (!loading && !lastError) bits.push('<span>' + allRuns.length + ' runs · ' + esc(CFG.user) + (CFG.token ? ' · authed' : ' · anon') + (loadedAt ? ' · ' + ago(loadedAt) : '') + '</span>');
+    statusEl.innerHTML = bits.join(' ');
+
+    tableHost.innerHTML = '';
+    var rows = allRuns.filter(matches);
+    if (!rows.length && !loading) {
+      tableHost.innerHTML = '<div class="ci-hint" style="padding:24px 4px;">' +
+        (lastError ? 'Could not load runs. ' : 'No workflow runs found. ') +
+        'Set your GitHub user (and a token for private repos / higher rate limits) above.</div>';
+      return;
+    }
+    // Collapse by repo: one accordion section per repo (rows are pre-sorted by
+    // recency, so the first per repo is newest). Repos with a failing/in-flight
+    // latest run open by default; a user's manual toggle wins on redraw.
+    var order = [], groups = {};
+    rows.forEach(function (r) { if (!groups[r.repo]) { groups[r.repo] = []; order.push(r.repo); } groups[r.repo].push(r); });
+    var sections = order.map(function (repo) {
+      var list = groups[repo];
+      var latest = list[0];
+      var bad = list.some(function (r) { return isBad(r) || isRunning(r); });
+      var host = document.createElement('div');
+      repoTable(host, list);
+      return {
+        title: glyph(latest) + '  ' + repo + '   ·   ' + list.length + ' run' + (list.length > 1 ? 's' : ''),
+        body: host,
+        open: openState[repo] != null ? openState[repo] : bad
+      };
+    });
+    ZGui.accordion(tableHost, sections, { multi: true, onToggle: function (i, isOpen) { openState[order[i]] = isOpen; } });
   }
 
   /* ---- toolbar (built once) ------------------------------------------------ */
@@ -170,12 +225,12 @@
       CFG.user = (userTf.get() || '').trim() || 'MenkeTechnologies';
       CFG.token = (tokTf.get() || '').trim();
       CFG.repoLimit = Math.max(1, Math.min(100, parseInt(limTf.get(), 10) || 20));
-      saveCfg(); fetchAll();
+      saveCfg(); rateLimitReset = 0; fetchAll(true);
     }
 
     var actions = document.createElement('div'); actions.className = 'ci-actions';
     actions.appendChild(Z.button({ label: 'SAVE', variant: 'primary', onClick: apply }));
-    actions.appendChild(Z.button({ label: '↻ REFRESH', variant: 'mini', onClick: fetchAll }));
+    actions.appendChild(Z.button({ label: '↻ REFRESH', variant: 'mini', onClick: function () { fetchAll(true); } }));
 
     wrap.appendChild(userField.el);
     wrap.appendChild(tokField.el);
@@ -196,7 +251,9 @@
   body.appendChild(statusEl);
   body.appendChild(tableHost);
 
-  loadCfg(function () { fetchAll(); });
-  // light auto-refresh so long-running builds update without a manual reload.
-  setInterval(function () { if (!document.hidden && Date.now() - loadedAt > 45000) fetchAll(); }, 30000);
+  // Render cache instantly (survives a 403), then only hit the API if it's stale.
+  loadCfg(function () { loadCache(function () { drawTable(); if (Date.now() - loadedAt > TTL) fetchAll(false); }); });
+  // Light auto-refresh so long-running builds update without a manual reload —
+  // gated by TTL + the rate-limit window so it never hammers the anon API.
+  setInterval(function () { if (!document.hidden && Date.now() - loadedAt > TTL) fetchAll(false); }, 60000);
 })();

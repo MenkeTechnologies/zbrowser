@@ -214,8 +214,11 @@
 
   window.__zbFindOpen = open;                    // vim mode ('/') calls this
 
+  var findKey = 'f';   // ⌘/Ctrl + <key>, remappable via the Keyboard page (zb_keys.openFind)
+  try { chrome.storage.local.get('zb_keys', function (o) { void chrome.runtime.lastError; if (o && o.zb_keys && o.zb_keys.openFind) findKey = o.zb_keys.openFind; }); } catch (e) {}
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_keys) findKey = (ch.zb_keys.newValue && ch.zb_keys.newValue.openFind) || 'f'; }); } catch (e) {}
   document.addEventListener('keydown', function (e) {
-    var isFind = (e.key === 'f' || e.key === 'F') && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+    var isFind = e.key.toLowerCase() === findKey.toLowerCase() && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
     if (isFind) {
       e.preventDefault();                        // suppress Chrome's native find
       e.stopPropagation();
