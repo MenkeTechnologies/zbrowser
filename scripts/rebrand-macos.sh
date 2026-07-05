@@ -13,7 +13,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source "$ROOT/scripts/state-dir.sh"
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 BASE_PATH_FILE=$STATE/base.path
 ICON=$ROOT/branding/zwire.icns
 NAME=zwire

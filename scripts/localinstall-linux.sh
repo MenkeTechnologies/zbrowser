@@ -5,7 +5,7 @@
 # plus a `zwire` launcher on PATH and a .desktop entry (app menu + icon). No
 # root required (user install under ~/.local). Delete the repo afterward and the
 # install still runs — the native host is a self-contained cross-platform Rust
-# binary. Only the user PROFILE (~/.zwire/profile) lives outside the install.
+# binary. Only the user PROFILE (<app-data>/zwire/profile) lives outside the install.
 #
 # Dispatched from scripts/localinstall.sh on Linux. Needs the Rust toolchain
 # (cargo) at build time; runs a plain Chromium snapshot fetched by fetch-base.sh.
@@ -14,8 +14,9 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 export APP_TITLE="ZWIRE" APP_SUB="// self-contained linux install"
 source scripts/cyberpunk.sh
+source scripts/state-dir.sh
 
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 PREFIX=${ZWIRE_PREFIX:-$HOME/.local}
 DEST=$PREFIX/opt/zwire
 BINLINK=$PREFIX/bin/zwire
@@ -80,7 +81,7 @@ cat > "$DEST/zwire" <<'LAUNCH'
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-STATE="${ZWIRE_STATE:-$HOME/.zwire}"
+STATE="${ZWIRE_STATE:-${XDG_CONFIG_HOME:-$HOME/.config}/zwire}"
 PROFILE="$STATE/profile"
 for d in "$PROFILE/NativeMessagingHosts" "$PROFILE/Default/NativeMessagingHosts"; do
   mkdir -p "$d"

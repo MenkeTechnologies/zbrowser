@@ -14,7 +14,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source "$ROOT/scripts/state-dir.sh"
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 PROFILE=$STATE/profile
 HOST_DIR=$ROOT/extensions/hud-internal/native/zwire-host
 BIN=${ZWIRE_HOST_BIN:-$HOST_DIR/target/release/zwire-host}

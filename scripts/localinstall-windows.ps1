@@ -13,7 +13,7 @@
   launcher, and creates a Start Menu shortcut with the zwire icon.
 
   No admin rights needed — everything is per-user (HKCU + %LOCALAPPDATA%).
-  The user PROFILE lives at %USERPROFILE%\.zwire\profile, outside the install,
+  The user PROFILE lives at %APPDATA%\zwire\profile, outside the install,
   so the install dir stays disposable.
 
   Requires the Rust toolchain (cargo) on PATH to build the native host.
@@ -33,7 +33,7 @@ $ZPWR_ID   = "hpppdchpnphmiijdeanibpcadgknmaja"
 $NEWTAB_ID = "gpoepnekoiplhkegjpocnpeijiefgieb"
 
 $Root    = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$State   = if ($env:ZWIRE_STATE) { $env:ZWIRE_STATE } else { Join-Path $env:USERPROFILE ".zwire" }
+$State   = if ($env:ZWIRE_STATE) { $env:ZWIRE_STATE } else { Join-Path $env:APPDATA "zwire" }
 $Profile = Join-Path $State "profile"
 $Dest    = Join-Path $env:LOCALAPPDATA "zwire"
 $IconSrc = Join-Path $Root "branding\zwire.ico"
@@ -125,7 +125,7 @@ $load = "$Dest\ext\newtab,$Dest\ext\zpwrchrome,$Dest\ext\hud-internal"
 @"
 @echo off
 setlocal
-set "PROFILE=%USERPROFILE%\.zwire\profile"
+set "PROFILE=%APPDATA%\zwire\profile"
 if not exist "%PROFILE%" mkdir "%PROFILE%"
 start "" "$Dest\browser\chrome.exe" ^
   --user-data-dir="%PROFILE%" ^

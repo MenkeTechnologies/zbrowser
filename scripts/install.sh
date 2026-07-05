@@ -8,6 +8,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+source "$ROOT/scripts/state-dir.sh"
 BINDIR=${HOME}/.local/bin
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -17,7 +18,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # 1. base browser
-if [[ ! -f ${ZWIRE_STATE:-$HOME/.zwire}/base.path ]]; then
+if [[ ! -f ${ZWIRE_STATE:-$(zwire_default_state)}/base.path ]]; then
   "$ROOT/scripts/fetch-base.sh"
 fi
 

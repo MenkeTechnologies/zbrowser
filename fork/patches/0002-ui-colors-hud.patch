@@ -2,36 +2,40 @@ diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/c
 index f5874357cb..7cff07cc04 100644
 --- a/chrome/browser/ui/color/chrome_color_mixer.cc
 +++ b/chrome/browser/ui/color/chrome_color_mixer.cc
-@@ -6,6 +6,21 @@
+@@ -6,6 +6,25 @@
  
  #include <string>
  
-+// zwire HUD: scheme-driven native palette (reads ~/.zwire/hud-scheme,
++// zwire HUD: scheme-driven native palette (reads <app-data>/zwire/hud-scheme,
 +// live-updates on change so the color-scheme picker drives the native chrome).
 +#include <atomic>
++#include <memory>
 +#include "base/base_paths.h"
 +#include "base/containers/span.h"
++#include "base/environment.h"
 +#include "base/files/file_path.h"
 +#include "base/files/file_path_watcher.h"
 +#include "base/files/file_util.h"
 +#include "base/functional/bind.h"
++#include "base/nix/xdg_util.h"
 +#include "base/no_destructor.h"
 +#include "base/path_service.h"
 +#include "base/strings/string_util.h"
++#include "build/build_config.h"
 +#include "content/public/browser/browser_thread.h"
 +#include "ui/native_theme/native_theme.h"
 +
  #include "base/feature_list.h"
  #include "base/logging.h"
  #include "base/strings/string_number_conversions.h"
-@@ -29,6 +44,93 @@
+@@ -29,6 +48,100 @@
  
  namespace {
  
 +// ---- zwire HUD scheme system -------------------------------------------
 +// The 8 strykelang schemes, baked native. The active one is chosen by the
 +// color-scheme picker (a content-script extension), which writes the scheme
-+// name to ~/.zwire/hud-scheme; a FilePathWatcher live-repaints the chrome.
++// name to <app-data>/zwire/hud-scheme; a FilePathWatcher live-repaints the chrome.
 +struct HudScheme {
 +  const char* name;
 +  SkColor p, s, c, h;      // bg: primary, secondary, card, hover
@@ -56,9 +60,16 @@ index f5874357cb..7cff07cc04 100644
 +}
 +
 +base::FilePath HudSchemeDir() {
-+  base::FilePath home;
-+  base::PathService::Get(base::DIR_HOME, &home);
-+  return home.Append(".zwire");
++  base::FilePath dir;
++#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
++  // macOS: ~/Library/Application Support ; Windows: %APPDATA%.
++  base::PathService::Get(base::DIR_APP_DATA, &dir);
++#else
++  // Linux/other: ${XDG_CONFIG_HOME:-~/.config} per XDG Base Directory spec.
++  std::unique_ptr<base::Environment> env(base::Environment::Create());
++  dir = base::nix::GetXDGDirectory(env.get(), "XDG_CONFIG_HOME", ".config");
++#endif
++  return dir.Append("zwire");
 +}
 +
 +void ReadHudSchemeFile() {
@@ -118,7 +129,7 @@ index f5874357cb..7cff07cc04 100644
  // This differs from ui::SelectColorBasedOnInput in that we're checking if the
  // input transform is *not* dark under the assumption that the background color
  // *is* dark from a potential custom theme. Additionally, if the mode is
-@@ -1122,26 +1224,87 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+@@ -1122,26 +1235,87 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
    // high-contrast early-return above so it always applies. Palette mirrors
    // docs/hud-static.css / newtab.css (cyberpunk scheme).
    {

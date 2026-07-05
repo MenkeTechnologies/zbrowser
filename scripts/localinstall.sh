@@ -7,10 +7,10 @@
 #   Contents/Resources/ext/       newtab · zpwrchrome · hud-internal extensions
 #   Contents/Resources/native/    zwire-host (Rust binary: scheme · sysinfo · PTY)
 #   Contents/MacOS/zwire          a bundle-relative launcher
-# So you can delete this repo (and ~/.zwire/base) and the app still runs — with
-# NO system dependencies (the native host is a self-contained Rust binary, not
-# python/psutil). Kept outside the bundle are the per-user PROFILE
-# (~/.zwire/profile) and a per-user copy of the extensions (~/.zwire/ext, staged
+# So you can delete this repo (and the base snapshot) and the app still runs —
+# with NO system dependencies (the native host is a self-contained Rust binary,
+# not python/psutil). Kept outside the bundle are the per-user PROFILE
+# (<app-data>/zwire/profile) and a per-user copy of the extensions (staged
 # from the bundle at launch so each user owns a writable copy — Chromium writes
 # each extension's indexed rulesets into <ext>/_metadata/, which a shared
 # /Applications bundle can't provide) — user data, like any app's ~/Library.
@@ -47,7 +47,8 @@ case "$(uname -s)" in
     exit 0 ;;
   *) cyber_fail "unsupported OS $(uname -s) — packaged: macOS (.app), Linux (~/.local), Windows (.ps1)"; exit 1 ;;
 esac
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source scripts/state-dir.sh
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 if [[ ! -f "$STATE/base.path" ]]; then
   cyber_warn "no base browser yet — building …"
   bash scripts/build.sh >/dev/null || { cyber_fail "base build failed"; exit 1; }
@@ -100,7 +101,7 @@ cat > "$DEST/Contents/MacOS/zwire" <<'LAUNCH'
 #!/bin/bash
 set -euo pipefail
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
-STATE="${ZWIRE_STATE:-$HOME/.zwire}"
+STATE="${ZWIRE_STATE:-$HOME/Library/Application Support/zwire}"
 PROFILE="$STATE/profile"
 mkdir -p "$PROFILE/NativeMessagingHosts" "$PROFILE/Default/NativeMessagingHosts"
 read -r -d '' HOSTJSON <<JSON || true

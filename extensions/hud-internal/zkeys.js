@@ -76,6 +76,8 @@
         { name: 'tmux-clock', def: 't', label: 'Clock' },
         { name: 'tmux-palette', def: ':', label: 'Command palette' },
         { name: 'tmux-detach', def: 'd', label: 'Detach (hide overlay)' },
+        { name: 'tmux-sessions', def: 's', label: 'Sessions (save / load / manage)' },
+        { name: 'tmux-session-save', def: 'S', label: 'Save current layout as a session' },
         { name: 'tmux-help', def: '?', label: 'Help' }
       ] }
     ],

@@ -14,7 +14,8 @@
 # revision is recorded in base.version for reproducibility.
 set -euo pipefail
 
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source "$(dirname "$0")/state-dir.sh"
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 BASE_DIR=$STATE/base
 mkdir -p "$BASE_DIR"
 

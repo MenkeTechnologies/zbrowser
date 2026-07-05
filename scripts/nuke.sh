@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Total annihilation: remove the /Applications wrapper AND the 325MB base
-# snapshot under ~/.zwire/base, then re-fetch the base from scratch, rebrand, and
+# snapshot under $STATE/base, then re-fetch the base from scratch, rebrand, and
 # reinstall the wrapper. This RE-DOWNLOADS the base browser — slow, deliberate.
-# Your profile (~/.zwire/profile) is preserved. Ported from the sibling set.
+# Your profile ($STATE/profile) is preserved. Ported from the sibling set.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 export APP_TITLE="ZWIRE" APP_SUB="// chromium, rebranded"
 source scripts/cyberpunk.sh
 
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source scripts/state-dir.sh
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 
 cyber_banner
 cyber_status "OPERATION" "NUKE // wipe base + wrapper, refetch"

@@ -2,7 +2,7 @@
  *
  * Two jobs:
  *  1. Relay the picked scheme from content scripts / pages to the native host,
- *     which writes ~/.zwire/hud-scheme so the compiled color mixer follows.
+ *     which writes <app-data>/zwire/hud-scheme so the compiled color mixer follows.
  *  2. Mirror the current scheme into chrome.storage.local ('zb_scheme') so the
  *     chrome:// theme content scripts have a reliable, push-based source they
  *     can read + observe (an async sendResponse across the native host is

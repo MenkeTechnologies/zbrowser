@@ -109,7 +109,7 @@
       <div class="cat-grid">
         <div class="cat-card"><h4>Runtime rebrand</h4><p>The default. New-tab override + internal-HUD skin + zpwrchrome preloaded on a prebuilt Chromium snapshot. Upgraded by swapping one binary &mdash; nothing to compile.</p></div>
         <div class="cat-card"><h4>Source fork</h4><p>Optional. A 9-patch series restyles native tabs, colors, UI font, toolbar, omnibox, product strings, and the DevTools Theme dropdown (8 HUD schemes), plus allow-framing for the ztmux overlay and ⌘K-palette focus hand-off.</p></div>
-        <div class="cat-card"><h4>Dedicated profile</h4><p>Everything runs against <code>~/.zwire/profile</code> &mdash; bookmarks, history, sessions kept separate from system Chrome.</p></div>
+        <div class="cat-card"><h4>Dedicated profile</h4><p>Everything runs against <code>$ZWIRE_STATE/profile</code> (default <code>~/Library/Application&nbsp;Support/zwire</code> on macOS) &mdash; bookmarks, history, sessions kept separate from system Chrome.</p></div>
       </div>
 
       <hr class="section-rule">
@@ -133,7 +133,7 @@
           <tr><td>New tab</td><td><code>newtab/</code> &mdash; a <code>chrome_url_overrides.newtab</code> extension: the full HUD (Orbitron, CRT scanlines, neon omnibox), fonts vendored locally.</td></tr>
           <tr><td>Internal HUD</td><td><code>extensions/hud-internal</code> &mdash; MV3 content script on <code>chrome://*/*</code> that skins Chrome's internal pages and adds a floating <strong>8-scheme</strong> picker, persisted via <code>chrome.storage</code> and bridged to a native host (<code>native/hud_host.py</code>). Needs <code>--extensions-on-chrome-urls</code>.</td></tr>
           <tr><td>Power-tool</td><td><code>extensions/zpwrchrome</code> &mdash; the MV3 extension, loaded as a submodule (reuse, not copy).</td></tr>
-          <tr><td>Launcher</td><td><code>bin/zwire</code> starts the base against <code>~/.zwire/profile</code> with newtab + zpwrchrome + hud-internal loaded and <code>--extensions-on-chrome-urls</code> set. Any dir missing a <code>manifest.json</code> is skipped, so a missing submodule degrades gracefully.</td></tr>
+          <tr><td>Launcher</td><td><code>bin/zwire</code> starts the base against <code>$ZWIRE_STATE/profile</code> with newtab + zpwrchrome + hud-internal loaded and <code>--extensions-on-chrome-urls</code> set. Any dir missing a <code>manifest.json</code> is skipped, so a missing submodule degrades gracefully.</td></tr>
           <tr><td>Fork</td><td><code>fork/</code> &mdash; optional source build: a 9-patch series restyles native tabs, colors, UI font, toolbar, omnibox, and the DevTools Theme dropdown, plus allow-framing and ⌘K-palette focus.</td></tr>
         </tbody>
       </table>

@@ -19,7 +19,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source scripts/state-dir.sh
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 
 cyber_section "BASE BUNDLE"
 if [[ -f "$STATE/base.path" ]]; then

@@ -76,9 +76,17 @@
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault(); e.stopImmediatePropagation(); up({ palette: 1 }); return;
       }
-      if (pSync && !e.ctrlKey && !e.metaKey && !e.altKey && editable(document.activeElement) &&
-          (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace')) {
-        up({ synckey: e.key });
+      // Broadcast editable keystrokes to the other panes. Plain chars + Enter +
+      // Backspace forward as-is; the readline line-editing combos forward as
+      // semantic tokens so synchronize-panes covers them too: C-w kill word,
+      // C-u kill to line start, plus the macOS ⌥/⌘-Delete twins of each.
+      if (pSync && editable(document.activeElement)) {
+        var mod = e.ctrlKey || e.metaKey || e.altKey;
+        if (!mod && (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace')) up({ synckey: e.key });
+        else if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'w' || e.key === 'W')) up({ synckey: 'C-w' });
+        else if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'u' || e.key === 'U')) up({ synckey: 'C-u' });
+        else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Backspace') up({ synckey: 'C-w' });
+        else if (e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'Backspace') up({ synckey: 'C-u' });
       }
     }, true);
     window.addEventListener('message', function (ev) {
@@ -101,6 +109,22 @@
       if (!el) return; var hasVal = ('value' in el), focused = (document.activeElement === el);
       if (k === 'Backspace') { if (hasVal) { setNative(el, el.value.slice(0, -1)); el.dispatchEvent(new Event('input', { bubbles: true })); } else if (focused) { try { document.execCommand('delete'); } catch (e) {} } }
       else if (k === 'Enter') { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })); if (el.form && typeof el.form.requestSubmit === 'function') { try { el.form.requestSubmit(); } catch (e) {} } }
+      else if (k === 'C-w' || k === 'C-u') {
+        // kill word (C-w) / kill to line start (C-u), cursor-aware. Deletes back
+        // from the caret to the word/line-start boundary, keeping text after it.
+        if (hasVal) {
+          var val = el.value, s = el.selectionStart, e2 = el.selectionEnd;
+          if (s == null) { s = e2 = val.length; }
+          var cut;
+          if (k === 'C-w') { cut = s; while (cut > 0 && /\s/.test(val[cut - 1])) cut--; while (cut > 0 && !/\s/.test(val[cut - 1])) cut--; }
+          else { cut = val.lastIndexOf('\n', s - 1) + 1; }
+          setNative(el, val.slice(0, cut) + val.slice(e2));
+          try { el.selectionStart = el.selectionEnd = cut; } catch (x) {}
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (focused && window.getSelection) {
+          try { var sel = window.getSelection(); sel.modify('extend', 'backward', k === 'C-w' ? 'word' : 'lineboundary'); document.execCommand('delete'); } catch (e) {}
+        }
+      }
       else if (k.length === 1) { if (hasVal) { setNative(el, el.value + k); el.dispatchEvent(new Event('input', { bubbles: true })); } else if (focused) { try { document.execCommand('insertText', false, k); } catch (e) {} } }
     }
     return;
@@ -327,6 +351,8 @@
       case 'tmux-clock': showClock(); return;
       case 'tmux-palette': try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} return;
       case 'tmux-detach': open = wasClosed; break;   // toggle: C-b d detaches when attached, re-attaches when detached
+      case 'tmux-sessions': openSessionsPage(); return;
+      case 'tmux-session-save': saveCurrentSession(); return;
       case 'tmux-help': showHelp(); return;
       default: return;
     }
@@ -615,6 +641,49 @@
     } catch (e) {}
   }
 
+  /* --------------------------- named sessions ----------------------------- */
+  // Durable, named sessions live in chrome.storage.local 'zb_tmux_sessions'
+  // (full CRUD on pages/sessions.html). A session is windows[] -> panes[] ->
+  // a webview {url,title}; loading rebuilds the tiling tree from the flat pane
+  // list (auto-tiled via buildEven), saving snapshots the current tree's leaves.
+  var SESSIONS_KEY = 'zb_tmux_sessions';
+  function sessionSnapshot() {
+    return S.windows.map(function (win) {
+      return { name: win.name || '', panes: leaves(win.tree).map(function (l) { return { url: l.url || '', title: l.title || '' }; }) };
+    });
+  }
+  function windowFromPanes(name, panes) {
+    var list = (panes && panes.length ? panes : [{ url: '' }]).map(function (p) { var l = leaf((p && p.url) || ''); l.title = (p && p.title) || ''; return l; });
+    return { id: nid('w'), name: name || '', tree: buildEven(list, 'row'), active: list[0].id, zoom: null, sync: false, last: null };
+  }
+  function applySession(sess) {
+    if (!sess || !sess.windows || !sess.windows.length) return;
+    S.windows.forEach(function (win) { leaves(win.tree).forEach(function (l) { dropPane(l.id); }); });   // release old iframes
+    S.windows = sess.windows.map(function (w) { return windowFromPanes(w.name, w.panes); });
+    S.active = 0; S.last = null; open = true; render(); focusActive(); publishTmux();
+  }
+  function loadSessionById(id) {
+    if (!id) return;
+    try { chrome.storage.local.get(SESSIONS_KEY, function (o) { void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || []; for (var i = 0; i < arr.length; i++) if (arr[i].id === id) { applySession(arr[i]); return; } }); } catch (e) {}
+  }
+  function saveCurrentSession() {
+    promptModal('Save current layout as session', '', function (name) {
+      name = (name || '').trim(); if (!name) return;
+      try {
+        chrome.storage.local.get(SESSIONS_KEY, function (o) {
+          void chrome.runtime.lastError;
+          var arr = (o && o[SESSIONS_KEY]) || [], now = Date.now();
+          arr.unshift({ id: 's' + now.toString(36) + '-' + Math.floor(Math.random() * 1e6).toString(36), name: name, created: now, updated: now, windows: sessionSnapshot() });
+          chrome.storage.local.set({ zb_tmux_sessions: arr }, function () { void chrome.runtime.lastError; });
+        });
+      } catch (e) {}
+    });
+  }
+  function openSessionsPage() {
+    var url = chrome.runtime.getURL('pages/sessions.html');
+    try { window.open(url, '_blank'); } catch (e) { try { top.location.href = url; } catch (x) {} }
+  }
+
   /* -------------------------------- sync ---------------------------------- */
   function broadcastSync(win) { leaves(win.tree).forEach(function (l) { var p = panes[l.id]; if (p) try { p.frame.contentWindow.postMessage({ __zbtmux: 1, setSync: win.sync }, '*'); } catch (e) {} }); }
   function relaySync(source, key) {
@@ -731,7 +800,7 @@
   }
 
   // re-theme the overlay when the scheme changes (matches the rest of the HUD).
-  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area !== 'local') return; if (ch.zb_scheme) applyTheme(); if (ch.zb_frecent || ch.zb_tabs) loadNav(); if (ch.zb_keys) buildKeys(ch.zb_keys.newValue || {}); }); } catch (e) {}
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area !== 'local') return; if (ch.zb_scheme) applyTheme(); if (ch.zb_frecent || ch.zb_tabs) loadNav(); if (ch.zb_keys) buildKeys(ch.zb_keys.newValue || {}); if (ch.zb_tmux_load && ch.zb_tmux_load.newValue) loadSessionById(ch.zb_tmux_load.newValue.id); }); } catch (e) {}
 
   // restore any tmux session persisted before a reload (per-tab sessionStorage).
   restore();

@@ -15,7 +15,7 @@
   var PAGES = [['EXTENSIONS', 'extensions.html'], ['SETTINGS', 'settings.html'],
     ['HISTORY', 'history.html'], ['DOWNLOADS', 'chrome://downloads'], ['BOOKMARKS', 'bookmarks.html'],
     ['CI', 'ci.html'], ['SHORTCUTS', 'keys.html'], ['EXT KEYS', 'extshortcuts.html'],
-    ['COMMANDS', 'commands.html'], ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
+    ['COMMANDS', 'commands.html'], ['SESSIONS', 'sessions.html'], ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
   var NATIVE_PAGES = [['FLAGS', 'chrome://flags'], ['DISCARDS', 'chrome://discards'],
     ['DNS', 'chrome://net-internals/#dns'], ['GPU', 'chrome://gpu'], ['NET', 'chrome://net-internals']];
   // Extra palette-only destinations (not shown as nav buttons): more chrome://

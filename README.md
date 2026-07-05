@@ -52,7 +52,7 @@ way; Chromium can.
 | **New tab** | `newtab/` — a `chrome_url_overrides.newtab` extension: the full HUD (Orbitron, CRT scanlines, neon omnibox), fonts vendored locally |
 | **Internal HUD** | `extensions/hud-internal` — MV3 content script on `chrome://*/*` that skins Chrome's internal pages with the cyberpunk HUD and adds a floating **8-scheme** picker (cyberpunk · midnight · matrix · ember · arctic · crimson · toxic · vapor), persisted via `chrome.storage` and bridged to a native host (`native/hud_host.py`). Needs `--extensions-on-chrome-urls` |
 | **Power-tool** | `extensions/zpwrchrome` — the MV3 extension, loaded as a submodule (reuse, not copy) |
-| **Launcher** | `bin/zwire` — starts the base against `~/.zwire/profile` with `newtab` + `zpwrchrome` + `hud-internal` loaded and `--extensions-on-chrome-urls` set (any dir missing a `manifest.json` is skipped, so a missing submodule degrades gracefully) |
+| **Launcher** | `bin/zwire` — starts the base against `$ZWIRE_STATE/profile` with `newtab` + `zpwrchrome` + `hud-internal` loaded and `--extensions-on-chrome-urls` set (any dir missing a `manifest.json` is skipped, so a missing submodule degrades gracefully) |
 | **Fork** | `fork/` — optional source build that restyles the native chrome (tab shapes, fonts, borders, DevTools) for the full HUD |
 
 A Chrome theme extension changes **colors only** — it cannot reshape tabs, fonts,
@@ -68,7 +68,7 @@ scripts/install.sh          # fetch base + link `zwire` on PATH + rebrand (macOS
 zwire                    # launch
 ```
 
-`install.sh` downloads the Chromium base into `~/.zwire/base`, symlinks
+`install.sh` downloads the Chromium base into `$ZWIRE_STATE/base`, symlinks
 `bin/zwire` into `~/.local/bin`, and on macOS rebrands the base bundle's Dock
 name and icon in place. Re-run after a base upgrade.
 
@@ -80,7 +80,10 @@ zwire https://github.com      # open a url
 zwire --incognito             # any Chromium flag is passed through
 ```
 
-State lives under `$ZWIRE_STATE` (default `~/.zwire`):
+State lives under `$ZWIRE_STATE`, which defaults to the OS application-data
+directory — macOS `~/Library/Application Support/zwire`, Linux
+`${XDG_CONFIG_HOME:-~/.config}/zwire`, Windows `%APPDATA%\zwire`. A one-time
+launch auto-migrates a legacy `~/.zwire` into the new location:
 
 | Path | Purpose |
 |---|---|

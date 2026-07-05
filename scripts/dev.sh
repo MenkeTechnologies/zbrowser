@@ -8,7 +8,8 @@ cd "$(dirname "$0")/.."
 export APP_TITLE="ZWIRE" APP_SUB="// chromium, rebranded"
 source scripts/cyberpunk.sh
 
-STATE=${ZWIRE_STATE:-$HOME/.zwire}
+source scripts/state-dir.sh
+STATE=${ZWIRE_STATE:-$(zwire_default_state)}
 
 cyber_banner
 cyber_status "OPERATION" "DEV // launch browser"
