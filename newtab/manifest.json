@@ -12,5 +12,22 @@
   ],
   "chrome_url_overrides": {
     "newtab": "newtab.html"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "newtab.html",
+        "newtab.css",
+        "newtab.js",
+        "palette.js",
+        "scheme-sync.js",
+        "schemes.js",
+        "fonts/*",
+        "lib/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

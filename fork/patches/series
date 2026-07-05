@@ -10,7 +10,7 @@
 0005-omnibox-hud.patch              # location_bar_view.cc -> HUD field styling (VERIFIED git-apply @150.0.7871.46)
 0006-branding-strings.patch         # chrome/app/theme/chromium/BRANDING -> "zwire" product strings (VERIFIED git-apply @150.0.7871.46)
 0007-devtools-hud-theme.patch       # devtools front_end (3 files) -> 8 HUD schemes in the Theme dropdown (VERIFIED git-apply @150.0.7871.46)
-# 0008-tmux-split-prefix.patch   # DISABLED — native split is 2-pane side-by-side
-#   only ("fake" tmux). Real N-pane tiling now lives in the JS overlay
-#   (extensions/hud-internal/ztmux.js), which owns the Ctrl-b prefix. Re-enabling
-#   this patch would consume the prefix + command keys before the page sees them.
+# 0008-tmux-split-prefix.patch — REMOVED (file deleted). The native 2-pane
+#   side-by-side split was "fake" tmux; real N-pane tiling is the JS overlay
+#   (extensions/hud-internal/ztmux.js), which owns Ctrl-b. The old patch consumed
+#   the prefix + the next key before the page saw them (the "C-b %%" double-tap).

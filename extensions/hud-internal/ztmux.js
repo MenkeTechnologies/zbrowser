@@ -69,7 +69,10 @@
   }
 
   /* ============================ TOP FRAME: state ============================ */
-  var NEWTAB = 'chrome://newtab';           // every fresh pane opens the zwire new-tab
+  // every fresh pane opens the zwire new-tab. chrome://newtab can't be iframed
+  // (chrome:// pages are un-embeddable), so we frame the new-tab EXTENSION's
+  // web-accessible page directly — same page chrome://newtab redirects to.
+  var NEWTAB = 'chrome-extension://gpoepnekoiplhkegjpocnpeijiefgieb/newtab.html';
   var uid = 0; function nid(p) { return (p || 'p') + (++uid); }
   function leaf(url) { return { t: 'leaf', id: nid('p'), url: url || NEWTAB, title: '' }; }
   function mkWindow(url) { var l = leaf(url); return { id: nid('w'), name: '', tree: l, active: l.id, zoom: null, sync: false }; }
@@ -156,35 +159,53 @@
   var panes = {};          // leafId -> { wrap, frame, addr, titleEl, url }
   var paneRects = {};      // leafId -> {x,y,w,h} in % (active window only)
 
+  // Themed with the active scheme's CSS vars (same ones zstatus.js / every HUD
+  // page use) so panes/tabs match cyberpunk/ember/matrix/… live. Hardcoded hexes
+  // are fallbacks only.
+  var HUD = window.ZWIRE_HUD || {}, SCHEMES = HUD.SCHEMES || {}, VAR_KEYS = HUD.VAR_KEYS || [];
   var CSS = [
     // leave the bottom 22px for the real powerline statusbar (zstatus.js).
     '#zbtmux{position:fixed;top:0;left:0;right:0;bottom:22px;z-index:2147483640;display:none;flex-direction:column;',
-    ' background:#05060a;font-family:"Share Tech Mono",Monaco,monospace;color:#c8d2e0;}',
+    ' background:var(--bg-primary,#05060a);font-family:"Share Tech Mono",Monaco,monospace;color:var(--text,#c8d2e0);}',
     '#zbtmux.on{display:flex;}',
-    '#zbtmux .zt-tabs{display:flex;gap:2px;align-items:stretch;height:26px;background:#0a0d16;',
-    ' border-bottom:1px solid #05d9e8;padding:0 6px;overflow-x:auto;flex-shrink:0;}',
+    '#zbtmux .zt-tabs{display:flex;gap:2px;align-items:stretch;height:26px;background:var(--bg-card,#0a0d16);',
+    ' border-bottom:1px solid var(--cyan,#05d9e8);padding:0 6px;overflow-x:auto;flex-shrink:0;}',
     '#zbtmux .zt-tab{display:flex;align-items:center;gap:6px;padding:0 12px;font-size:12px;',
-    ' color:#5a6b82;cursor:pointer;border-top:2px solid transparent;white-space:nowrap;}',
-    '#zbtmux .zt-tab.act{color:#05060a;background:#05d9e8;font-weight:700;}',
-    '#zbtmux .zt-tab .zt-sync{color:#ff2a6d;font-size:10px;}',
+    ' color:var(--text-muted,#5a6b82);cursor:pointer;border-top:2px solid transparent;white-space:nowrap;}',
+    '#zbtmux .zt-tab.act{color:var(--bg-primary,#05060a);background:var(--cyan,#05d9e8);font-weight:700;',
+    ' box-shadow:0 0 12px var(--cyan-glow,rgba(5,217,232,.4));}',
+    '#zbtmux .zt-tab .zt-sync{color:var(--accent,#ff2a6d);font-size:10px;}',
     '#zbtmux .zt-body{position:relative;flex:1;overflow:hidden;}',
     '#zbtmux .zt-pane{position:absolute;display:flex;flex-direction:column;overflow:hidden;',
-    ' border:1px solid #1a2436;box-sizing:border-box;}',
-    '#zbtmux .zt-pane.act{border-color:#05d9e8;box-shadow:inset 0 0 0 1px #05d9e8,0 0 14px rgba(5,217,232,.35);}',
-    '#zbtmux .zt-ttl{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;background:#0a0d16;',
-    ' font-size:11px;color:#7d8aa0;flex-shrink:0;border-bottom:1px solid #1a2436;}',
-    '#zbtmux .zt-pane.act .zt-ttl{color:#05d9e8;}',
+    ' border:1px solid var(--border,#1a2436);box-sizing:border-box;background:var(--bg-primary,#05060a);}',
+    '#zbtmux .zt-pane.act{border-color:var(--cyan,#05d9e8);',
+    ' box-shadow:inset 0 0 0 1px var(--cyan,#05d9e8),0 0 16px var(--cyan-glow,rgba(5,217,232,.35));}',
+    '#zbtmux .zt-ttl{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;background:var(--bg-card,#0a0d16);',
+    ' font-size:11px;color:var(--text-muted,#7d8aa0);flex-shrink:0;border-bottom:1px solid var(--border,#1a2436);}',
+    '#zbtmux .zt-pane.act .zt-ttl{color:var(--cyan,#05d9e8);}',
     '#zbtmux .zt-addr{flex:1;min-width:0;background:transparent;border:none;outline:none;color:inherit;',
     ' font:inherit;padding:2px 0;}',
-    '#zbtmux .zt-x{cursor:pointer;color:#ff2a6d;padding:0 2px;font-size:12px;}',
+    '#zbtmux .zt-addr::placeholder{color:var(--text-muted,#5a6b82);}',
+    '#zbtmux .zt-x{cursor:pointer;color:var(--accent,#ff2a6d);padding:0 2px;font-size:12px;}',
     '#zbtmux .zt-fr{flex:1;border:0;width:100%;background:#fff;}',
     '#zbtmux .zt-pane:not(.act) .zt-cover{position:absolute;inset:22px 0 0 0;z-index:2;cursor:pointer;background:transparent;}'
   ].join('');
+
+  function applyTheme() {
+    if (!styleEl) return;
+    var cb = function (vars) {
+      var v = ''; for (var i = 0; i < VAR_KEYS.length; i++) if (vars[VAR_KEYS[i]]) v += VAR_KEYS[i] + ':' + vars[VAR_KEYS[i]] + ';';
+      styleEl.textContent = '#zbtmux{' + v + '}' + CSS;
+    };
+    try { chrome.storage.local.get('zb_scheme', function (o) { void chrome.runtime.lastError; var s = SCHEMES[(o && o.zb_scheme) || 'cyberpunk'] || SCHEMES.cyberpunk || { vars: {} }; cb(s.vars || {}); }); }
+    catch (e) { cb((SCHEMES.cyberpunk || { vars: {} }).vars || {}); }
+  }
 
   function ensureDom() {
     if (root) return;
     styleEl = document.createElement('style'); styleEl.textContent = CSS;
     (document.head || document.documentElement).appendChild(styleEl);
+    applyTheme();
     root = document.createElement('div'); root.id = 'zbtmux';
     tabsEl = document.createElement('div'); tabsEl.className = 'zt-tabs';
     bodyEl = document.createElement('div'); bodyEl.className = 'zt-body';
@@ -194,7 +215,7 @@
 
   function normalizeUrl(v) {
     v = (v || '').trim(); if (!v) return 'about:blank';
-    if (/^[a-z]+:\/\//i.test(v) || v === 'about:blank') return v;
+    if (/^[a-z][a-z0-9+.\-]*:\/\//i.test(v) || v === 'about:blank') return v;   // any scheme incl. chrome-extension://
     if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(v) && v.indexOf(' ') < 0) return 'https://' + v;
     return 'https://www.google.com/search?q=' + encodeURIComponent(v);
   }
@@ -230,8 +251,12 @@
   function setActive(id) { W().active = id; render(); }
   function focusActive() {
     var l = activeLeaf(), p = l && panes[l.id]; if (!p) return;
-    // A fresh/blank pane: land in its address bar so you can type where to go.
-    if (!l.url || l.url === 'about:blank') { try { p.addr.focus(); return; } catch (e) {} }
+    // Land in the pane's ADDRESS BAR (a top-frame element the prefix handler can
+    // see) for blank/newtab panes — the newtab iframe is the newtab extension's
+    // origin, where our prefix forwarder can't run, so focusing it would swallow
+    // the next C-b/⌥b (the "needs two presses" bug). Real (http) panes get frame
+    // focus — the forwarder runs there.
+    if (!l.url || l.url === 'about:blank' || l.url === NEWTAB) { try { p.addr.focus(); return; } catch (e) {} }
     try { p.frame.focus(); } catch (e) {}
   }
 
@@ -291,7 +316,8 @@
   function armTop() { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); }, 2500); render(); }
   document.addEventListener('keydown', function (e) {
     if (armed) {
-      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta' || e.key === 'Dead' || e.key === 'Process') return;
+      if (isPrefix(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }   // repeated prefix / echo — stay armed
       armed = false; clearTimeout(armTimer);
       e.preventDefault(); e.stopImmediatePropagation();
       if (e.key !== 'Escape') exec(e.key); else render();
@@ -309,6 +335,9 @@
     else if (d.cmdKey) { armed = false; exec(d.cmdKey); }
     else if (d.synckey) { relaySync(ev.source, d.synckey); }
   });
+
+  // re-theme the overlay when the scheme changes (matches the rest of the HUD).
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_scheme) applyTheme(); }); } catch (e) {}
 
   // expose an opener for the ⌘K palette / vim ':' if they want it
   window.__zbTmuxOpen = function () { open = true; render(); focusActive(); };
