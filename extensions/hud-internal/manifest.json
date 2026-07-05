@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "zwire HUD Internal",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Cyberpunk HUD internal pages + 8-scheme picker for zwire.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr2PuA3ZZcP0X/k7dISHkTd6ICgQnAH1aU+q+wuxnHrl4xMopfwRYz5iKESz/p40d/bTq8gEKb2sRizFdB2VDi+/z9V+fMfNZQRIdiZVjmufjR81/POfpVlEZExmMzmjI16m/DnlHwQEpSwZ9wHPfH/n6YtNbHKcxqW58h9J7nykdEPg9LsCCMs3BOU5kxSJN1jqgFM/rJSIbeG9uN0g+3PypmDI+YnpN6J63OMFKEAbQFZDqMJN44lDvvQ72uOjZ8CnfalniujeUSdZ4FHFazn17n5HuPgMnlBmaPSbK/cScL4CgbWimIYuQPygpPnNF0Sx4vDjdWougUZagShrChwIDAQAB",
   "permissions": [
@@ -42,7 +42,17 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "zwire HUD"
+    "default_title": "zwire HUD",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "commands": {
     "open-palette": {

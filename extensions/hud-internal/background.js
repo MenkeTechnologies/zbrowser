@@ -58,6 +58,69 @@ seedFromNative();
 try { chrome.runtime.onStartup.addListener(seedFromNative); } catch (e) {}
 try { chrome.runtime.onInstalled.addListener(seedFromNative); } catch (e) {}
 
+// Seed the ⌘K custom-command registry with a default rule set on FIRST RUN only.
+// `zb_custom_cmds` is a user-editable array (commands.html); seed it just when
+// the key has never been set, so we never clobber a user's edits/deletions.
+// Each rule is a short keyword → URL (`kw arg` in ⌘K puts <arg> where {q} is).
+var CUSTOM_CMD_SEED = (function () {
+  function u(id, icon, label, kw, url) { return { id: 'def-' + id, icon: icon, label: label, detail: '', keyword: kw, type: 'url', value: url }; }
+  function a(id, icon, label, kw, act) { return { id: 'def-' + id, icon: icon, label: label, detail: '', keyword: kw, type: 'action', value: act }; }
+  return [
+    u('chatgpt', '🤖', 'ChatGPT', 'cg', 'https://chatgpt.com/?q={q}&hints=search'),
+    u('claude', '✳️', 'Claude', 'cl', 'https://claude.ai/new?q={q}'),
+    u('perplexity', '🔮', 'Perplexity', 'pp', 'https://www.perplexity.ai/search?q={q}'),
+    u('gmail', '✉️', 'Gmail', 'gm', 'https://mail.google.com/mail/u/0/#search/{q}'),
+    u('gdrive', '📁', 'Google Drive', 'gd', 'https://drive.google.com/drive/search?q={q}'),
+    u('gcal', '📅', 'Google Calendar', 'cal', 'https://calendar.google.com/'),
+    u('translate', '🌐', 'Google Translate', 'tr', 'https://translate.google.com/?sl=auto&tl=en&text={q}'),
+    u('images', '🖼️', 'Google Images', 'img', 'https://www.google.com/search?tbm=isch&q={q}'),
+    u('define', '📖', 'Define word', 'def', 'https://www.google.com/search?q=define%3A{q}'),
+    u('wolfram', '🧮', 'WolframAlpha', 'wa', 'https://www.wolframalpha.com/input?i={q}'),
+    u('hn', '🟧', 'Hacker News', 'hn', 'https://hn.algolia.com/?q={q}'),
+    u('linkedin', '💼', 'LinkedIn', 'li', 'https://www.linkedin.com/search/results/all/?keywords={q}'),
+    u('imdb', '🎬', 'IMDb', 'imdb', 'https://www.imdb.com/find/?q={q}'),
+    u('netflix', '📺', 'Netflix', 'nf', 'https://www.netflix.com/search?q={q}'),
+    u('spotify', '🎵', 'Spotify', 'sp', 'https://open.spotify.com/search/{q}'),
+    u('ytmusic', '🎧', 'YouTube Music', 'ytm', 'https://music.youtube.com/search?q={q}'),
+    u('bing', '🔎', 'Bing', 'bing', 'https://www.bing.com/search?q={q}'),
+    u('kagi', '🧭', 'Kagi', 'kagi', 'https://kagi.com/search?q={q}'),
+    u('gist', '📝', 'GitHub Gist', 'gist', 'https://gist.github.com/search?q={q}'),
+    u('gpr', '🔀', 'GitHub PRs', 'pr', 'https://github.com/pulls'),
+    u('gissues', '🐛', 'GitHub Issues', 'iss', 'https://github.com/issues'),
+    u('grepapp', '🔍', 'grep.app (code search)', 'grep', 'https://grep.app/search?q={q}'),
+    u('caniuse', '✅', 'Can I Use', 'ciu', 'https://caniuse.com/?search={q}'),
+    u('bundlephobia', '📦', 'Bundlephobia', 'bp', 'https://bundlephobia.com/package/{q}'),
+    u('regex101', '⚙️', 'regex101', 'rex', 'https://regex101.com/'),
+    u('mavencentral', '☕', 'Maven Central', 'mvn', 'https://central.sonatype.com/search?q={q}'),
+    u('aws', '🟠', 'AWS Console', 'aws', 'https://console.aws.amazon.com/console/home'),
+    u('gcp', '🔵', 'GCP Console', 'gcp', 'https://console.cloud.google.com/'),
+    u('vercel', '▲', 'Vercel', 'vc', 'https://vercel.com/dashboard'),
+    u('cloudflare', '☁️', 'Cloudflare', 'cf', 'https://dash.cloudflare.com/'),
+    u('notion', '🗒️', 'Notion', 'no', 'https://www.notion.so/{q}'),
+    u('figma', '🎨', 'Figma', 'fig', 'https://www.figma.com/files'),
+    u('devdocs', '📚', 'DevDocs', 'dd', 'https://devdocs.io/#q={q}'),
+    u('archwiki', '🐧', 'Arch Wiki', 'aw', 'https://wiki.archlinux.org/index.php?search={q}'),
+    u('emoji', '🔣', 'Emoji / Unicode', 'uni', 'https://emojipedia.org/search?q={q}'),
+    a('reload', '↻', 'Reload page', 'rl', 'reload'),
+    a('copyurl', '⧉', 'Copy page URL', 'cu', 'copyUrl'),
+    a('scheme', '◐', 'Cycle color scheme', 'cs', 'cycleScheme')
+  ];
+})();
+function seedCustomCmds() {
+  try {
+    chrome.storage.local.get(['zb_custom_cmds', 'zb_cmds_seeded'], function (o) {
+      void chrome.runtime.lastError;
+      if (o && o.zb_cmds_seeded) return;                       // seed the defaults exactly once, ever
+      var cur = (o && o.zb_custom_cmds) || [], have = {};
+      cur.forEach(function (c) { if (c && c.id) have[c.id] = 1; });   // keep any user entries; add missing defaults
+      var merged = cur.concat(CUSTOM_CMD_SEED.filter(function (c) { return !have[c.id]; }));
+      try { chrome.storage.local.set({ zb_custom_cmds: merged, zb_cmds_seeded: 1 }); } catch (e) {}
+    });
+  } catch (e) {}
+}
+seedCustomCmds();
+try { chrome.runtime.onInstalled.addListener(seedCustomCmds); } catch (e) {}
+
 // ⌘K command palette. The new-tab page reserves ⌘K at the browser level before
 // any page JS sees it (native + chrome.commands shortcuts fire there, page
 // keydown listeners don't), so a page-level listener can never open the palette

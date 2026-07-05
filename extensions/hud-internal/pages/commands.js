@@ -209,4 +209,7 @@
   body.appendChild(buildForm());
   try { chrome.storage.local.get(KEY, function (o) { void chrome.runtime.lastError; cmds = (o && o[KEY]) || []; drawTable(); }); }
   catch (e) { drawTable(); }
+  // live-refresh when the registry changes (e.g. the background seeds defaults
+  // just after this page loaded, or an edit lands from another tab).
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch[KEY] && !editingId) { cmds = ch[KEY].newValue || []; drawTable(); } }); } catch (e) {}
 })();
