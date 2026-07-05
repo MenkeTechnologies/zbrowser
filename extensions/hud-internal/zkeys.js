@@ -50,6 +50,14 @@
         { name: 'tmux-split-v', def: '"', label: 'Split pane down' },
         { name: 'tmux-pane-next', def: 'o', label: 'Next pane' },
         { name: 'tmux-pane-last', def: ';', label: 'Last (previous) pane' },
+        { name: 'tmux-pane-left', def: 'h', label: 'Select pane ←' },
+        { name: 'tmux-pane-down', def: 'j', label: 'Select pane ↓' },
+        { name: 'tmux-pane-up', def: 'k', label: 'Select pane ↑' },
+        { name: 'tmux-pane-right', def: 'l', label: 'Select pane →' },
+        { name: 'tmux-resize-left', def: 'H', label: 'Resize pane ←' },
+        { name: 'tmux-resize-down', def: 'J', label: 'Resize pane ↓' },
+        { name: 'tmux-resize-up', def: 'K', label: 'Resize pane ↑' },
+        { name: 'tmux-resize-right', def: 'L', label: 'Resize pane →' },
         { name: 'tmux-zoom', def: 'z', label: 'Zoom pane' },
         { name: 'tmux-close', def: 'x', label: 'Close pane' },
         { name: 'tmux-swap-prev', def: '{', label: 'Swap pane ←' },
@@ -58,10 +66,13 @@
         { name: 'tmux-break', def: '!', label: 'Break pane to new window' },
         { name: 'tmux-pane-nums', def: 'q', label: 'Show pane numbers' },
         { name: 'tmux-layout', def: ' ', label: 'Cycle layout' },
+        { name: 'tmux-grid-4', def: 'F', label: 'Layout: 4 even panes (grid)' },
+        { name: 'tmux-grid-8', def: 'G', label: 'Layout: 8 even panes (grid)' },
+        { name: 'tmux-grid-16', def: 'I', label: 'Layout: 16 even panes (grid)' },
         { name: 'tmux-win-new', def: 'c', label: 'New window' },
         { name: 'tmux-win-next', def: 'n', label: 'Next window' },
         { name: 'tmux-win-prev', def: 'p', label: 'Previous window' },
-        { name: 'tmux-win-last', def: 'l', label: 'Last window' },
+        { name: 'tmux-win-last', def: 'Tab', label: 'Last window' },
         { name: 'tmux-win-rename', def: ',', label: 'Rename window' },
         { name: 'tmux-win-move', def: '.', label: 'Move / renumber window' },
         { name: 'tmux-win-goto', def: "'", label: 'Go to window (prompt)' },
@@ -88,9 +99,9 @@
       { name: 'openPalette', def: 'k', mod: '⌘/Ctrl', label: 'Open command palette' },
       { name: 'openFind', def: 'f', mod: '⌘/Ctrl', label: 'Open find bar' }
     ],
-    // Fixed, not remappable here (owned by the native fork).
-    native: [
-      { name: 'tmuxPrefix', def: 'Ctrl-b', label: 'tmux split prefix (then % " o { } x)' }
-    ]
+    // Fixed, not remappable here (owned by the native fork). The tmux prefix used
+    // to live here as native Ctrl-b, but the native-split patch was superseded by
+    // the JS overlay (ztmux.js) and the prefix is now rebindable on this page.
+    native: []
   };
 })();

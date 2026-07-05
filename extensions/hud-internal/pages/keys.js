@@ -11,6 +11,8 @@
   var overrides = {};        // zb_keys
   var filter = '';
   var capturing = null;
+  var prefix = null;         // zb_tmux_prefix (chord list) — null = default C-b / ⌥B
+  var opts = {};             // zb_tmux_opts { timeout }
 
   var shell = window.ZBHUD.mount({
     title: 'KEYBOARD', current: 'keys.html', filterPlaceholder: '>_ filter shortcuts…',
@@ -86,16 +88,70 @@
   }
   function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
 
+  /* ---- tmux prefix + options (drives ztmux.js via chrome.storage.local) ---- */
+  function fmtChord(c) {
+    var s = ''; if (c.ctrl) s += 'C-'; if (c.alt) s += '⌥'; if (c.meta) s += '⌘'; if (c.shift) s += '⇧';
+    var k = c.key || (c.code ? c.code.replace(/^Key/, '') : '?');
+    return s + (k.length === 1 ? k.toUpperCase() : k);
+  }
+  function prefixLabel() { return (prefix && prefix.length) ? prefix.map(fmtChord).join(' / ') : 'C-b / ⌥B'; }
+  function saveTmux(cb) {
+    try {
+      var set = { zb_tmux_opts: opts };
+      if (prefix && prefix.length) { set.zb_tmux_prefix = prefix; chrome.storage.local.set(set, function () { void chrome.runtime.lastError; if (cb) cb(); }); }
+      else { chrome.storage.local.remove('zb_tmux_prefix', function () { void chrome.runtime.lastError; chrome.storage.local.set(set, function () { void chrome.runtime.lastError; if (cb) cb(); }); }); }
+    } catch (e) { if (cb) cb(); }
+  }
+  function capturePrefix(chip) {
+    chip.textContent = 'press a chord…'; chip.classList.add('capturing');
+    function h(e) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (e.key === 'Escape') { document.removeEventListener('keydown', h, true); render(); return; }
+      if (['Shift', 'Control', 'Alt', 'Meta'].indexOf(e.key) >= 0) return;   // wait for the real key
+      var c = {}; if (e.ctrlKey) c.ctrl = true; if (e.altKey) c.alt = true; if (e.metaKey) c.meta = true;
+      if (!c.ctrl && !c.alt && !c.meta) { chip.textContent = 'need Ctrl/Alt/⌘ …'; return; }   // a bare key would arm constantly
+      c.key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      document.removeEventListener('keydown', h, true);
+      prefix = [c]; saveTmux(render);
+    }
+    document.addEventListener('keydown', h, true);
+  }
+  function tmuxPanel() {
+    var inner = el('div');
+    inner.appendChild(el('div', 'set-h', '// TMUX · PREFIX & OPTIONS'));
+    var list = el('div', 'info-list');
+    // prefix row
+    var pr = el('div', 'info-row'); pr.appendChild(el('span', 'ik', 'Prefix (arms the overlay)'));
+    var pv = el('span', 'iv');
+    var chip = document.createElement('kbd'); chip.className = 'xt-kbd xt-kbd-edit'; chip.tabIndex = 0; chip.title = 'click to set a new prefix chord';
+    chip.textContent = prefixLabel();
+    chip.addEventListener('click', function () { capturePrefix(chip); });
+    chip.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); capturePrefix(chip); } });
+    pv.appendChild(chip);
+    if (prefix && prefix.length) { var rb = Z.button({ label: 'reset', variant: 'mini', onClick: function () { prefix = null; saveTmux(render); } }); rb.style.marginLeft = '8px'; pv.appendChild(rb); }
+    pr.appendChild(pv); list.appendChild(pr);
+    // timeout row
+    var tr = el('div', 'info-row'); tr.appendChild(el('span', 'ik', 'Prefix timeout (ms)'));
+    var tv = el('span', 'iv');
+    var ti = document.createElement('input'); ti.type = 'number'; ti.min = '200'; ti.step = '100'; ti.className = 'zs-input'; ti.style.width = '90px';
+    ti.value = (typeof opts.timeout === 'number' ? opts.timeout : 2500);
+    ti.addEventListener('change', function () { var v = parseInt(ti.value, 10); opts.timeout = (v > 0 ? v : 2500); saveTmux(); });
+    tv.appendChild(ti); tr.appendChild(tv); list.appendChild(tr);
+    inner.appendChild(list);
+    return Z.card({ body: inner }).el;
+  }
+
   function render() {
     body.innerHTML = '';
     // toolbar: reset-all + extension-shortcuts link
     var bar = el('div', 'ci-toolbar');
-    bar.appendChild(el('div', 'ci-hint', 'Click a key to remap · Esc cancel · press the default to clear an override. tmux split prefix is native (Ctrl-b) and fixed.'));
+    bar.appendChild(el('div', 'ci-hint', 'Click a key to remap · Esc cancel · press the default to clear an override. The tmux prefix is rebindable below (default Ctrl-b / ⌥B).'));
     var acts = el('div', 'ci-actions');
     acts.appendChild(Z.button({ label: 'RESET ALL', variant: 'mini', onClick: function () { overrides = {}; save(render); } }));
     acts.appendChild(Z.button({ label: 'EXTENSION SHORTCUTS ↗', variant: 'mini', onClick: function () { try { chrome.tabs.create({ url: chrome.runtime.getURL('pages/extensions.html') + '#shortcuts' }); } catch (e) {} } }));
     bar.appendChild(acts);
     body.appendChild(Z.card({ body: bar }).el);
+    if (!filter) body.appendChild(tmuxPanel());
 
     (REG.categories || []).forEach(function (c) { var card = catCard(c); if (card) body.appendChild(card); });
 
@@ -120,5 +176,13 @@
     }
   }
 
-  try { chrome.storage.local.get('zb_keys', function (o) { void chrome.runtime.lastError; overrides = (o && o.zb_keys) || {}; render(); }); } catch (e) { render(); }
+  try {
+    chrome.storage.local.get(['zb_keys', 'zb_tmux_prefix', 'zb_tmux_opts'], function (o) {
+      void chrome.runtime.lastError;
+      overrides = (o && o.zb_keys) || {};
+      prefix = (o && Array.isArray(o.zb_tmux_prefix) && o.zb_tmux_prefix.length) ? o.zb_tmux_prefix : null;
+      opts = (o && o.zb_tmux_opts) || {};
+      render();
+    });
+  } catch (e) { render(); }
 })();

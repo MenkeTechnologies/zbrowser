@@ -20,15 +20,38 @@
   if (window.__zbtmuxLoaded) return; window.__zbtmuxLoaded = true;
 
   function editable(el) { if (!el) return false; var t = el.tagName; return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || el.isContentEditable; }
-  // Prefix: Ctrl-b (the real one — but the fork's native-split patch eats it until
-  // the fork is rebuilt) OR ⌥-b (Alt-b, which nothing intercepts — use it to test
-  // the overlay now, pre-rebuild).
-  function isPrefix(e) {
-    if (e.metaKey) return false;
-    if (e.ctrlKey && !e.altKey && (e.key === 'b' || e.key === 'B')) return true;
-    if (e.altKey && !e.ctrlKey && e.code === 'KeyB') return true;
+  // Prefix: rebindable (Keyboard settings page → tmux). Stored in
+  // chrome.storage.local 'zb_tmux_prefix' as a list of chords; a keypress that
+  // matches ANY chord arms the overlay. Default = Ctrl-b (the real tmux prefix,
+  // but the fork's native-split patch eats it until rebuilt) OR ⌥-b (nothing
+  // intercepts Alt-b, so the overlay is testable pre-rebuild). Set your own —
+  // e.g. C-a — and it live-reloads. Runs in BOTH the top frame and every pane.
+  function defaultPrefix() { return [{ ctrl: true, key: 'b' }, { alt: true, code: 'KeyB' }]; }
+  var PREFIX = null, ARM_MS = 2500;
+  function chordMatch(e, c) {
+    if (!!c.ctrl !== e.ctrlKey || !!c.alt !== e.altKey || !!c.meta !== e.metaKey) return false;
+    if (c.shift != null && !!c.shift !== e.shiftKey) return false;
+    if (c.code) return e.code === c.code;
+    if (c.key) return e.key.toLowerCase() === String(c.key).toLowerCase();
     return false;
   }
+  function isPrefix(e) {
+    var list = (PREFIX && PREFIX.length) ? PREFIX : defaultPrefix();
+    for (var i = 0; i < list.length; i++) if (chordMatch(e, list[i])) return true;
+    return false;
+  }
+  function loadTmuxCfg() {
+    try {
+      chrome.storage.local.get(['zb_tmux_prefix', 'zb_tmux_opts'], function (o) {
+        void chrome.runtime.lastError;
+        PREFIX = (o && Array.isArray(o.zb_tmux_prefix) && o.zb_tmux_prefix.length) ? o.zb_tmux_prefix : null;
+        var opts = (o && o.zb_tmux_opts) || {};
+        ARM_MS = (typeof opts.timeout === 'number' && opts.timeout > 0) ? opts.timeout : 2500;
+      });
+    } catch (e) {}
+  }
+  loadTmuxCfg();
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && (ch.zb_tmux_prefix || ch.zb_tmux_opts)) loadTmuxCfg(); }); } catch (e) {}
 
   /* ===================== PANE FRAME: forwarder + sync ===================== */
   if (!TOP) {
@@ -67,7 +90,7 @@
       }
       if (isPrefix(e)) {
         e.preventDefault(); e.stopImmediatePropagation();
-        pArmed = true; clearTimeout(pTimer); pTimer = setTimeout(function () { pArmed = false; }, 2500);
+        pArmed = true; clearTimeout(pTimer); pTimer = setTimeout(function () { pArmed = false; }, ARM_MS);
         up({ prefix: 1 });
         return;
       }
@@ -259,6 +282,22 @@
     var mid = Math.ceil(ls.length / 2);
     return { t: 'split', dir: dir, ratio: mid / ls.length, a: buildEven(ls.slice(0, mid), dir), b: buildEven(ls.slice(mid), dir) };
   }
+  // Even 2D grid (tmux "tiled"): columns of stacked panes, ~square. Nodes may be
+  // leaves or subtrees — buildEven wraps either.
+  function buildTiled(ls) {
+    if (ls.length <= 1) return ls[0];
+    var cols = Math.ceil(Math.sqrt(ls.length)), per = Math.ceil(ls.length / cols), colTrees = [], i = 0;
+    while (i < ls.length) { colTrees.push(buildEven(ls.slice(i, i + per), 'col')); i += per; }
+    return buildEven(colTrees, 'row');
+  }
+  // Preset grid: grow the active window to at least n panes (new panes open the
+  // new-tab), then tile evenly — the four/eight/sixteen-panes presets, for webviews.
+  function applyGrid(n) {
+    var w = W(), ls = leaves(w.tree);
+    while (ls.length < n) ls.push(leaf(''));
+    w.tree = buildTiled(ls); w.layout = 'tiled'; w.zoom = null;
+    setActivePane(ls[0].id);
+  }
   function cycleLayout() {
     var w = W(), ls = leaves(w.tree); if (ls.length < 2) return;
     var order = ['even-h', 'even-v', 'main-v', 'main-h', 'tiled'];
@@ -335,6 +374,17 @@
       case 'tmux-split-v': splitPane('col'); break;
       case 'tmux-pane-next': navCycle(1); break;
       case 'tmux-pane-last': lastPane(); break;
+      case 'tmux-pane-left': navDir('left'); break;
+      case 'tmux-pane-down': navDir('down'); break;
+      case 'tmux-pane-up': navDir('up'); break;
+      case 'tmux-pane-right': navDir('right'); break;
+      case 'tmux-resize-left': resizePane('left', 0.05); break;
+      case 'tmux-resize-down': resizePane('down', 0.05); break;
+      case 'tmux-resize-up': resizePane('up', 0.05); break;
+      case 'tmux-resize-right': resizePane('right', 0.05); break;
+      case 'tmux-grid-4': applyGrid(4); break;
+      case 'tmux-grid-8': applyGrid(8); break;
+      case 'tmux-grid-16': applyGrid(16); break;
       case 'tmux-zoom': w.zoom = w.zoom ? null : w.active; break;
       case 'tmux-close': closePane(); break;
       case 'tmux-swap-prev': swapPane(-1); break;
@@ -717,7 +767,7 @@
   }
 
   /* ----------------------------- key handling ----------------------------- */
-  function armTop() { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); publishTmux(); }, 2500); render(); publishTmux(); }
+  function armTop() { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); publishTmux(); }, ARM_MS); render(); publishTmux(); }
   document.addEventListener('keydown', function (e) {
     if (armed) {
       if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta' || e.key === 'Dead' || e.key === 'Process') return;
@@ -735,7 +785,7 @@
   // commands + sync relayed up from pane iframes
   window.addEventListener('message', function (ev) {
     var d = ev.data; if (!d || !d.__zbtmux) return;
-    if (d.prefix) { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); }, 2500); render(); }
+    if (d.prefix) { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); }, ARM_MS); render(); }
     else if (d.cmdKey) { armed = false; exec(d.cmdKey, { ctrl: d.ctrl, alt: d.alt }); }
     else if (d.palette) { try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} }
     else if (d.synckey) { relaySync(ev.source, d.synckey); }
