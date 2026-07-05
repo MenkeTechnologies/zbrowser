@@ -115,6 +115,57 @@ function updateFrecent() {
 updateFrecent();
 try { if (chrome.history) chrome.history.onVisited.addListener(updateFrecent); } catch (e) {}
 
+// CI status poller: latest workflow-run conclusion per repo, summarized into
+// storage 'zb_ci_status' for the HUD statusbar dot. Config shared with the CI
+// page ('zb_ci'). A new failure raises a desktop notification.
+// 16px hot-pink "CI" tile, inline so notifications never depend on an icon file.
+var CI_ICON = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" fill="#0a0a12"/><rect x="8" y="8" width="112" height="112" rx="12" fill="none" stroke="#ff2a6d" stroke-width="6"/><text x="64" y="82" font-family="monospace" font-size="52" font-weight="bold" fill="#ff2a6d" text-anchor="middle">CI</text></svg>');
+function ghFetch(path, token, cb) {
+  var h = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  try { fetch('https://api.github.com' + path, { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(cb).catch(function () { cb(null); }); }
+  catch (e) { cb(null); }
+}
+function pollCi() {
+  try {
+    chrome.storage.local.get(['zb_ci', 'zb_ci_status'], function (o) {
+      void chrome.runtime.lastError;
+      var c = (o && o.zb_ci) || {}, prev = (o && o.zb_ci_status) || {};
+      var user = c.user || 'MenkeTechnologies', token = c.token || '';
+      var limit = Math.min(c.repoLimit || 8, token ? 12 : 5);   // stay under the 60/hr anon cap
+      var reposPath = token ? '/user/repos?per_page=100&sort=pushed&affiliation=owner'
+        : '/users/' + encodeURIComponent(user) + '/repos?per_page=100&sort=pushed&type=owner';
+      ghFetch(reposPath, token, function (repos) {
+        if (!repos || !repos.length) return;
+        repos = repos.filter(function (r) { return !r.archived; }).slice(0, limit);
+        var fail = 0, running = 0, ok = 0, total = 0, pending = repos.length, fails = [];
+        repos.forEach(function (rp) {
+          ghFetch('/repos/' + rp.full_name + '/actions/runs?per_page=1', token, function (d) {
+            var run = d && d.workflow_runs && d.workflow_runs[0];
+            if (run) {
+              total++;
+              if (run.status !== 'completed') running++;
+              else if (run.conclusion === 'success') ok++;
+              else if (['failure', 'timed_out', 'startup_failure'].indexOf(run.conclusion) >= 0) { fail++; fails.push(rp.name); }
+            }
+            if (--pending === 0) {
+              chrome.storage.local.set({ zb_ci_status: { fail: fail, running: running, ok: ok, total: total, at: Date.now() } });
+              if (fail > (prev.fail || 0) && chrome.notifications) {
+                try { chrome.notifications.create('zb-ci-fail', { type: 'basic', iconUrl: CI_ICON, title: 'CI failing', message: fails.slice(0, 4).join(', ') + (fails.length > 4 ? '…' : '') }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+              }
+            }
+          });
+        });
+      });
+    });
+  } catch (e) {}
+}
+try {
+  chrome.alarms.create('zb-ci-poll', { periodInMinutes: 10 });
+  chrome.alarms.onAlarm.addListener(function (a) { if (a.name === 'zb-ci-poll') pollCi(); });
+} catch (e) {}
+pollCi();
+
 updateTabs();
 try {
   chrome.tabs.onCreated.addListener(updateTabs);
@@ -146,6 +197,13 @@ chrome.storage.onChanged.addListener(function (changes, area) {
     } else if (c.a === 'activate' && c.tabId != null) {
       chrome.tabs.update(c.tabId, { active: true }, function (t) { void chrome.runtime.lastError; if (t && t.windowId != null) chrome.windows.update(t.windowId, { focused: true }); });
     } else if (c.a === 'newTab') { chrome.tabs.create({});
+    } else if (c.a === 'newWindow') { chrome.windows.create({});
+    } else if (c.a === 'duplicateTab') { active(function (t) { if (t) chrome.tabs.duplicate(t.id); });
+    } else if (c.a === 'reopenTab') { try { chrome.sessions.restore(function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'pinTab') { active(function (t) { if (t) chrome.tabs.update(t.id, { pinned: !t.pinned }); });
+    } else if (c.a === 'muteTab') { active(function (t) { if (t) chrome.tabs.update(t.id, { muted: !(t.mutedInfo && t.mutedInfo.muted) }); });
+    } else if (c.a === 'closeOthers') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { (all || []).forEach(function (x) { if (x.id !== t.id && !x.pinned) chrome.tabs.remove(x.id); }); }); });
     } else if (c.a === 'closeTab') { active(function (t) { if (t) chrome.tabs.remove(t.id); });
     } else if (c.a === 'nextTab' || c.a === 'prevTab') {
       chrome.tabs.query({ lastFocusedWindow: true }, function (all) {

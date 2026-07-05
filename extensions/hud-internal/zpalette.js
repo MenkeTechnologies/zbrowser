@@ -74,6 +74,7 @@
 
   function items() {
     var out = [];
+    cmdItems().forEach(function (c) { out.push(c); });
     PAGES.forEach(function (p) { out.push({ icon: p[0], label: 'Go: ' + p[1], detail: p[2], run: function () { open(extUrl(p[2])); } }); });
     CHROME.forEach(function (p) { out.push({ icon: p[0], label: 'Open: ' + p[1], detail: p[2], run: function () { open(p[2]); } }); });
     WEB.forEach(function (p) { out.push({ icon: p[0], label: 'Open: ' + p[1], detail: p[2], run: function () { open(p[2]); } }); });
@@ -82,6 +83,69 @@
   }
   function frecentItems(frec) {
     return (frec || []).map(function (f) { return { icon: '★', label: (f.title || f.url), detail: f.url, run: function () { open(f.url); } }; });
+  }
+
+  /* ---- command runner (pulled from zgo): browser verbs + web-search --------- */
+  function clip(text) { try { navigator.clipboard.writeText(text); } catch (e) {} }
+  function cycleScheme() {
+    try { chrome.storage.local.get('zb_scheme', function (o) {
+      var cur = (o && o.zb_scheme) || 'cyberpunk';
+      var i = ORDER.indexOf(cur); var next = ORDER[(i + 1 + ORDER.length) % ORDER.length] || ORDER[0];
+      setScheme(next);
+    }); } catch (e) {}
+  }
+  function cmdItems() {
+    return [
+      { icon: '＋', label: 'New tab', run: function () { cmd({ a: 'newTab' }); } },
+      { icon: '⊞', label: 'New window', run: function () { cmd({ a: 'newWindow' }); } },
+      { icon: '⧉', label: 'Duplicate tab', run: function () { cmd({ a: 'duplicateTab' }); } },
+      { icon: '↺', label: 'Reopen closed tab', run: function () { cmd({ a: 'reopenTab' }); } },
+      { icon: '✕', label: 'Close tab', run: function () { cmd({ a: 'closeTab' }); } },
+      { icon: '⊗', label: 'Close other tabs', run: function () { cmd({ a: 'closeOthers' }); } },
+      { icon: '→', label: 'Next tab', run: function () { cmd({ a: 'nextTab' }); } },
+      { icon: '←', label: 'Previous tab', run: function () { cmd({ a: 'prevTab' }); } },
+      { icon: '📌', label: 'Pin / unpin tab', run: function () { cmd({ a: 'pinTab' }); } },
+      { icon: '🔇', label: 'Mute / unmute tab', run: function () { cmd({ a: 'muteTab' }); } },
+      { icon: '⟳', label: 'Reload page', run: function () { try { location.reload(); } catch (e) {} } },
+      { icon: '⧉', label: 'Copy URL', detail: 'this page', run: function () { clip(location.href); } },
+      { icon: '⤓', label: 'Copy as Markdown', detail: 'this page', run: function () { clip('[' + document.title + '](' + location.href + ')'); } },
+      { icon: '◐', label: 'Cycle color scheme', run: cycleScheme },
+      { icon: '▭', label: 'Toggle HUD statusbar', run: function () { try { chrome.storage.local.get('zb_status', function (o) { var on = !(o && o.zb_status === false); chrome.storage.local.set({ zb_status: !on }); }); } catch (e) {} } }
+    ];
+  }
+
+  // Web-search keywords (from zgo BUILTINS): `gh foo` -> search GitHub for foo.
+  var SEARCH = [
+    ['g', 'Google', 'https://www.google.com/search?q={q}'],
+    ['ddg', 'DuckDuckGo', 'https://duckduckgo.com/?q={q}'],
+    ['gh', 'GitHub', 'https://github.com/search?q={q}'],
+    ['yt', 'YouTube', 'https://www.youtube.com/results?search_query={q}'],
+    ['npm', 'npm', 'https://www.npmjs.com/search?q={q}'],
+    ['mdn', 'MDN', 'https://developer.mozilla.org/en-US/search?q={q}'],
+    ['so', 'Stack Overflow', 'https://stackoverflow.com/search?q={q}'],
+    ['wiki', 'Wikipedia', 'https://en.wikipedia.org/w/index.php?search={q}'],
+    ['maps', 'Google Maps', 'https://www.google.com/maps/search/{q}'],
+    ['crates', 'crates.io', 'https://crates.io/search?q={q}']
+  ];
+  function searchProvider(q) {
+    if (!q) return [];
+    var out = [];
+    var sp = q.indexOf(' ');
+    var kw = (sp > 0 ? q.slice(0, sp) : q).toLowerCase();
+    var rest = sp > 0 ? q.slice(sp + 1).trim() : '';
+    var hit = SEARCH.filter(function (s) { return s[0] === kw; })[0];
+    if (hit && rest) {
+      out.push({ icon: '⌕', label: hit[1] + ': ' + rest, detail: 'search', run: function () { open(hit[2].replace('{q}', encodeURIComponent(rest))); } });
+      return out;   // strong keyword signal — show just that engine
+    }
+    // url / domain? offer to open it directly.
+    if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(q) && q.indexOf(' ') < 0) {
+      out.push({ icon: '↗', label: 'Open ' + q, detail: 'go to site', run: function () { open(/^https?:\/\//.test(q) ? q : 'https://' + q); } });
+    }
+    // generic web fallback (Alfred-style) — Google + DDG for the raw query.
+    out.push({ icon: '⌕', label: 'Google: ' + q, detail: 'web search', run: function () { open('https://www.google.com/search?q=' + encodeURIComponent(q)); } });
+    out.push({ icon: '⌕', label: 'DuckDuckGo: ' + q, detail: 'web search', run: function () { open('https://duckduckgo.com/?q=' + encodeURIComponent(q)); } });
+    return out;
   }
 
   function tabItems(tabs) {
@@ -108,7 +172,7 @@
     schemeVars(injectStyle);
     // Open SYNCHRONOUSLY with the static commands so it never depends on an
     // async read — nav always works. Tabs (storage bus) are appended after.
-    try { ZGui.palette.clear(); ZGui.palette.register(items()); ZGui.palette.open(); } catch (ex) {}
+    try { ZGui.palette.clear(); ZGui.palette.register(items()); if (ZGui.palette.registerProvider) ZGui.palette.registerProvider(searchProvider); ZGui.palette.open(); } catch (ex) {}
     try {
       chrome.storage.local.get(['zb_tabs', 'zb_exts', 'zb_frecent'], function (o) {
         void chrome.runtime.lastError;

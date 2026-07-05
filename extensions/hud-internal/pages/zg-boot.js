@@ -132,6 +132,7 @@
   /* ---- shell mount: the old strykelang HUD page (no appShell top bar) ----- */
   function mount(opts) {
     opts = opts || {};
+    var crtCtl = null;
     injectCss();
     var root = document.getElementById('app') || document.body;
     var app = el('div', 'zb-app');
@@ -156,12 +157,18 @@
       ZGui.searchBox(filterHost, { placeholder: opts.filterPlaceholder || '>_ filter…', regex: false,
         onInput: function (v) { opts.onFilter(v); } });
     }
-    // CRT scanlines via ZGui.crt (Audio-Haxor overlay)
-    try { if (ZGui.crt) ZGui.crt({ on: true }); } catch (e) {}
+    // CRT scanlines via ZGui.crt — call with NO {on} so it RESPECTS the saved
+    // pref (localStorage zguiCrt). Forcing {on:true} here re-enabled it on every
+    // page load, so toggling it off never stuck. Toggle it from the ⌘K palette.
+    try { if (ZGui.crt) crtCtl = ZGui.crt(); } catch (e) {}
     // ⌘K / : command palette (ZGui.palette): cross-page nav + this page's
     // commands + every open tab (so it doubles as a tab switcher).
     if (ZGui.palette) {
-      var pageItems = paletteNav().concat(opts.palette || []);
+      var hudCmds = [
+        { icon: '⌂', label: 'Toggle CRT scanlines', hint: 'HUD', run: function () { try { if (crtCtl) crtCtl.toggle(); } catch (e) {} } },
+        { icon: '✦', label: 'Toggle neon glow', hint: 'HUD', run: function () { try { if (ZGui.neonGlow) ZGui.neonGlow.toggle(); } catch (e) {} } }
+      ];
+      var pageItems = hudCmds.concat(paletteNav()).concat(opts.palette || []);
       var openPal = function () {
         // open synchronously with nav commands (nav always works); append tabs after.
         try { ZGui.palette.clear(); ZGui.palette.register(pageItems); ZGui.palette.open(); } catch (e) {}
