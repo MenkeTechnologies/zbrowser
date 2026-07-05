@@ -7,3 +7,8 @@ Cached Theme.pak
 node_modules/
 *.log
 .DS_Store
+
+# Chrome writes _metadata/ into keyed unpacked extensions at load time
+extensions/*/_metadata/
+extensions/*/*/_metadata/
+newtab/_metadata/

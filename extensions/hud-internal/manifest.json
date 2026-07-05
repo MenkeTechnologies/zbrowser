@@ -18,11 +18,21 @@
     "notifications",
     "developerPrivate",
     "settingsPrivate",
-    "system.display"
+    "system.display",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
-    "https://api.github.com/*"
+    "<all_urls>"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "frame_bust",
+        "enabled": true,
+        "path": "rules/frame_bust.json"
+      }
+    ]
+  },
   "externally_connectable": {
     "ids": [
       "hpppdchpnphmiijdeanibpcadgknmaja"
@@ -139,6 +149,18 @@
       ],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*",
+        "file:///*"
+      ],
+      "js": [
+        "ztmux.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     },
     {
       "matches": [

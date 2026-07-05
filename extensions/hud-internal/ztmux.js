@@ -1,105 +1,302 @@
-/* zwire HUD — tmux-style pane/window control on every page.
- * Prefix key Ctrl-b, then a command key drives the tiling engine in the
- * background worker (zb_cmd {a:'tmux'}). Panes are real browser windows tiled
- * by geometry; windows (tmux) are pane groups; synchronize-panes broadcasts
- * typed keystrokes to sibling panes. Runs on stock Chrome too — no fork.
+/* zwire HUD — tmux/zellij IN the browser. A real in-page tiling overlay:
+ *   SESSION → WINDOWS (tabs) → PANES (iframe tiles), split BOTH ways, nested to
+ *   any depth, unlimited windows, sync-panes. No OS windows. Panes are real
+ *   webpages (the extension strips X-Frame-Options so any site frames).
  *
- *   C-b %      split right        C-b "   split down
- *   C-b o / ;  next / prev pane   C-b ←→↑↓ focus pane by direction
- *   C-b z      zoom pane          C-b x   close pane
- *   C-b c      new window         C-b n/p next / prev window
- *   C-b Space  cycle layout       C-b &   kill window
- *   C-b e      toggle synchronize-panes   C-b ?  palette
- */
+ * Prefix Ctrl-b, then:
+ *   %  split →  (side by side)     "  split ↓  (stacked)
+ *   o / ;  next / prev pane        ←→↑↓  focus pane by direction
+ *   z  zoom pane                   x  close pane
+ *   c  new window                  n / p  next / prev window
+ *   e  sync panes (broadcast typing)   d  detach (hide)   &  kill window
+ *
+ * Runs in ALL frames: the top frame hosts the overlay; a pane iframe (marked
+ * window.name='zbtmux') forwards the prefix + relays sync keystrokes. */
 (function () {
   'use strict';
-  if (window.__zbTmuxLoaded) return;
-  window.__zbTmuxLoaded = true;
+  var TOP = window.self === window.top;
+  var PANE = (window.name === 'zbtmux');
+  if (!TOP && !PANE) return;                 // unrelated sub-frame — do nothing
+  if (window.__zbtmuxLoaded) return; window.__zbtmuxLoaded = true;
 
-  var cmdN = 0;
-  function cmd(obj) { try { obj.n = ++cmdN + '.' + (window.__zbTick = (window.__zbTick || 0) + 1); chrome.storage.local.set({ zb_cmd: obj }); } catch (e) {} }
-  function tmux(sub, extra) { var o = { a: 'tmux', sub: sub }; if (extra) for (var k in extra) o[k] = extra[k]; cmd(o); }
   function editable(el) { if (!el) return false; var t = el.tagName; return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || el.isContentEditable; }
 
-  /* ---- prefix indicator ------------------------------------------------- */
-  var indEl;
-  function indicator(txt) {
-    if (!indEl) {
-      indEl = document.createElement('div'); indEl.id = 'zb-tmux-ind';
-      indEl.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:2147483646;' +
-        'background:rgba(0,0,0,.85);color:#05d9e8;border:1px solid #05d9e8;border-radius:3px;padding:4px 12px;' +
-        'font:12px "Share Tech Mono",Monaco,monospace;pointer-events:none;transition:opacity .15s;letter-spacing:1px;';
-      (document.body || document.documentElement).appendChild(indEl);
+  /* ===================== PANE FRAME: forwarder + sync ===================== */
+  if (!TOP) {
+    var pArmed = false, pTimer = null, pSync = false;
+    function up(o) { try { parent.postMessage(Object.assign({ __zbtmux: 1 }, o), '*'); } catch (e) {} }
+    document.addEventListener('keydown', function (e) {
+      if (pArmed) {
+        if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+        pArmed = false; clearTimeout(pTimer);
+        e.preventDefault(); e.stopImmediatePropagation();
+        up({ cmdKey: e.key });
+        return;
+      }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        pArmed = true; clearTimeout(pTimer); pTimer = setTimeout(function () { pArmed = false; }, 2500);
+        up({ prefix: 1 });
+        return;
+      }
+      if (pSync && !e.ctrlKey && !e.metaKey && !e.altKey && editable(document.activeElement) &&
+          (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace')) {
+        up({ synckey: e.key });
+      }
+    }, true);
+    window.addEventListener('message', function (ev) {
+      var d = ev.data; if (!d || !d.__zbtmux) return;
+      if (d.setSync != null) pSync = !!d.setSync;
+      else if (d.syncapply) applyKey(d.syncapply);
+    });
+    function setNative(el, v) { try { var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value'); if (d && d.set) { d.set.call(el, v); return; } } catch (e) {} el.value = v; }
+    function applyKey(k) {
+      var el = document.activeElement; if (!editable(el)) return; var hasVal = ('value' in el);
+      if (k === 'Backspace') { if (hasVal) { setNative(el, el.value.slice(0, -1)); el.dispatchEvent(new Event('input', { bubbles: true })); } else { try { document.execCommand('delete'); } catch (e) {} } }
+      else if (k === 'Enter') { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
+      else if (k.length === 1) { if (hasVal) { setNative(el, el.value + k); el.dispatchEvent(new Event('input', { bubbles: true })); } else { try { document.execCommand('insertText', false, k); } catch (e) {} } }
     }
-    indEl.textContent = txt; indEl.style.opacity = '1';
-    clearTimeout(indicator._t); indicator._t = setTimeout(function () { if (indEl) indEl.style.opacity = '0'; }, 1300);
+    return;
   }
 
-  var armed = false, armTimer = null;
-  function arm() { armed = true; indicator('C-b …'); clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; }, 2500); }
-  function disarm() { armed = false; clearTimeout(armTimer); }
+  /* ============================ TOP FRAME: state ============================ */
+  var uid = 0; function nid(p) { return (p || 'p') + (++uid); }
+  function leaf(url) { return { t: 'leaf', id: nid('p'), url: url || '', title: '' }; }
+  function mkWindow(url) { var l = leaf(url); return { id: nid('w'), name: '', tree: l, active: l.id, zoom: null, sync: false }; }
+  var S = { windows: [mkWindow(location.href)], active: 0 };
+  var open = false, armed = false, armTimer = null;
 
+  function W() { return S.windows[S.active]; }
+  function leaves(n, out) { out = out || []; if (n.t === 'leaf') out.push(n); else { leaves(n.a, out); leaves(n.b, out); } return out; }
+  function findLeaf(id) { var ls = leaves(W().tree); for (var i = 0; i < ls.length; i++) if (ls[i].id === id) return ls[i]; return null; }
+  function activeLeaf() { return findLeaf(W().active) || leaves(W().tree)[0]; }
+  function splitContaining(node, target, par) {
+    if (node.t !== 'split') return null;
+    if (node.a === target || node.b === target) return { split: node, par: par };
+    return splitContaining(node.a, target, node) || splitContaining(node.b, target, node);
+  }
+
+  /* ------------------------------- commands ------------------------------- */
+  function splitPane(dir) {                   // 'row' = side by side, 'col' = stacked
+    var w = W(), L = activeLeaf(); if (!L) return;
+    var N = leaf(''), sp = { t: 'split', dir: dir, a: L, b: N };
+    if (w.tree === L) { w.tree = sp; }
+    else { var info = splitContaining(w.tree, L, null); if (info.par) { if (info.par.a === info.split) info.par.a = sp; else info.par.b = sp; } else w.tree = sp; }
+    w.active = N.id; w.zoom = null;
+  }
+  function closePane() {
+    var w = W(), L = activeLeaf(); if (!L) return;
+    if (w.tree === L) { killWindow(); return; }
+    var info = splitContaining(w.tree, L, null);
+    var sib = info.split.a === L ? info.split.b : info.split.a;
+    if (!info.par) w.tree = sib; else { if (info.par.a === info.split) info.par.a = sib; else info.par.b = sib; }
+    w.active = leaves(sib)[0].id; w.zoom = null;
+    dropPane(L.id);
+  }
+  function navCycle(delta) { var w = W(), ls = leaves(w.tree), i = 0; for (var k = 0; k < ls.length; k++) if (ls[k].id === w.active) i = k; w.active = ls[(i + delta + ls.length) % ls.length].id; }
+  function navDir(dir) {
+    var w = W(), a = paneRects[w.active]; if (!a) return;
+    var ax = a.x + a.w / 2, ay = a.y + a.h / 2, best = null, bd = 1e9;
+    leaves(w.tree).forEach(function (l) {
+      if (l.id === w.active) return; var r = paneRects[l.id]; if (!r) return;
+      var cx = r.x + r.w / 2, cy = r.y + r.h / 2, ok = false;
+      if (dir === 'left') ok = cx < ax - 1; else if (dir === 'right') ok = cx > ax + 1;
+      else if (dir === 'up') ok = cy < ay - 1; else ok = cy > ay + 1;
+      if (!ok) return; var d = (cx - ax) * (cx - ax) + (cy - ay) * (cy - ay); if (d < bd) { bd = d; best = l; }
+    });
+    if (best) w.active = best.id;
+  }
+  function addWindow() { S.windows.push(mkWindow('')); S.active = S.windows.length - 1; }
+  function cycleWindow(delta) { if (S.windows.length < 2) return; S.active = (S.active + delta + S.windows.length) % S.windows.length; }
+  function killWindow() {
+    leaves(W().tree).forEach(function (l) { dropPane(l.id); });
+    S.windows.splice(S.active, 1);
+    if (!S.windows.length) { open = false; S.windows.push(mkWindow('')); S.active = 0; return; }
+    S.active = Math.min(S.active, S.windows.length - 1);
+  }
+  function toggleSync() { var w = W(); w.sync = !w.sync; broadcastSync(w); }
+
+  function exec(k) {
+    if (!open) open = true;
+    var w = W();
+    switch (k) {
+      case '%': case '5': splitPane('row'); break;
+      case '"': case "'": splitPane('col'); break;
+      case 'c': addWindow(); break;
+      case 'x': closePane(); break;
+      case '&': killWindow(); break;
+      case 'o': navCycle(1); break;
+      case ';': navCycle(-1); break;
+      case 'n': cycleWindow(1); break;
+      case 'p': cycleWindow(-1); break;
+      case 'z': w.zoom = w.zoom ? null : w.active; break;
+      case 'e': toggleSync(); break;
+      case 'd': open = false; break;
+      case 'ArrowLeft': navDir('left'); break;
+      case 'ArrowRight': navDir('right'); break;
+      case 'ArrowUp': navDir('up'); break;
+      case 'ArrowDown': navDir('down'); break;
+      default: return;
+    }
+    render(); focusActive();
+  }
+
+  /* --------------------------------- DOM ---------------------------------- */
+  var root, tabsEl, bodyEl, statusEl, styleEl;
+  var panes = {};          // leafId -> { wrap, frame, addr, titleEl, url }
+  var paneRects = {};      // leafId -> {x,y,w,h} in % (active window only)
+
+  var CSS = [
+    // leave the bottom 22px for the real powerline statusbar (zstatus.js).
+    '#zbtmux{position:fixed;top:0;left:0;right:0;bottom:22px;z-index:2147483640;display:none;flex-direction:column;',
+    ' background:#05060a;font-family:"Share Tech Mono",Monaco,monospace;color:#c8d2e0;}',
+    '#zbtmux.on{display:flex;}',
+    '#zbtmux .zt-tabs{display:flex;gap:2px;align-items:stretch;height:26px;background:#0a0d16;',
+    ' border-bottom:1px solid #05d9e8;padding:0 6px;overflow-x:auto;flex-shrink:0;}',
+    '#zbtmux .zt-tab{display:flex;align-items:center;gap:6px;padding:0 12px;font-size:12px;',
+    ' color:#5a6b82;cursor:pointer;border-top:2px solid transparent;white-space:nowrap;}',
+    '#zbtmux .zt-tab.act{color:#05060a;background:#05d9e8;font-weight:700;}',
+    '#zbtmux .zt-tab .zt-sync{color:#ff2a6d;font-size:10px;}',
+    '#zbtmux .zt-body{position:relative;flex:1;overflow:hidden;}',
+    '#zbtmux .zt-pane{position:absolute;display:flex;flex-direction:column;overflow:hidden;',
+    ' border:1px solid #1a2436;box-sizing:border-box;}',
+    '#zbtmux .zt-pane.act{border-color:#05d9e8;box-shadow:inset 0 0 0 1px #05d9e8,0 0 14px rgba(5,217,232,.35);}',
+    '#zbtmux .zt-ttl{display:flex;align-items:center;gap:6px;height:22px;padding:0 8px;background:#0a0d16;',
+    ' font-size:11px;color:#7d8aa0;flex-shrink:0;border-bottom:1px solid #1a2436;}',
+    '#zbtmux .zt-pane.act .zt-ttl{color:#05d9e8;}',
+    '#zbtmux .zt-addr{flex:1;min-width:0;background:transparent;border:none;outline:none;color:inherit;',
+    ' font:inherit;padding:2px 0;}',
+    '#zbtmux .zt-x{cursor:pointer;color:#ff2a6d;padding:0 2px;font-size:12px;}',
+    '#zbtmux .zt-fr{flex:1;border:0;width:100%;background:#fff;}',
+    '#zbtmux .zt-pane:not(.act) .zt-cover{position:absolute;inset:22px 0 0 0;z-index:2;cursor:pointer;background:transparent;}'
+  ].join('');
+
+  function ensureDom() {
+    if (root) return;
+    styleEl = document.createElement('style'); styleEl.textContent = CSS;
+    (document.head || document.documentElement).appendChild(styleEl);
+    root = document.createElement('div'); root.id = 'zbtmux';
+    tabsEl = document.createElement('div'); tabsEl.className = 'zt-tabs';
+    bodyEl = document.createElement('div'); bodyEl.className = 'zt-body';
+    statusEl = document.createElement('div'); statusEl.className = 'zt-status';
+    root.appendChild(tabsEl); root.appendChild(bodyEl); root.appendChild(statusEl);
+    (document.body || document.documentElement).appendChild(root);
+  }
+
+  function normalizeUrl(v) {
+    v = (v || '').trim(); if (!v) return 'about:blank';
+    if (/^[a-z]+:\/\//i.test(v) || v === 'about:blank') return v;
+    if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(v) && v.indexOf(' ') < 0) return 'https://' + v;
+    return 'https://www.google.com/search?q=' + encodeURIComponent(v);
+  }
+  function makePane(l) {
+    var wrap = document.createElement('div'); wrap.className = 'zt-pane';
+    var ttl = document.createElement('div'); ttl.className = 'zt-ttl';
+    var addr = document.createElement('input'); addr.className = 'zt-addr'; addr.spellcheck = false;
+    addr.placeholder = 'url or search …'; addr.value = l.url && l.url !== 'about:blank' ? l.url : '';
+    var x = document.createElement('span'); x.className = 'zt-x'; x.textContent = '✕';
+    ttl.appendChild(addr); ttl.appendChild(x);
+    var fr = document.createElement('iframe'); fr.className = 'zt-fr'; fr.name = 'zbtmux';
+    fr.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen');
+    fr.src = normalizeUrl(l.url);
+    var cover = document.createElement('div'); cover.className = 'zt-cover';
+    wrap.appendChild(ttl); wrap.appendChild(fr); wrap.appendChild(cover);
+    var rec = { wrap: wrap, frame: fr, addr: addr, url: l.url };
+    addr.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Enter') { l.url = addr.value; rec.url = addr.value; fr.src = normalizeUrl(addr.value); fr.focus(); } });
+    addr.addEventListener('focus', function () { setActive(l.id); });
+    x.addEventListener('click', function (e) { e.stopPropagation(); setActive(l.id); closePane(); });
+    cover.addEventListener('mousedown', function () { setActive(l.id); focusActive(); });
+    wrap.addEventListener('mousedown', function () { setActive(l.id); });
+    panes[l.id] = rec; bodyEl.appendChild(wrap);
+    return rec;
+  }
+  function dropPane(id) { var p = panes[id]; if (p) { try { p.wrap.remove(); } catch (e) {} delete panes[id]; } }
+
+  function computeRects(node, x, y, w, h, out) {
+    if (node.t === 'leaf') { out[node.id] = { x: x, y: y, w: w, h: h }; return; }
+    if (node.dir === 'row') { computeRects(node.a, x, y, w / 2, h, out); computeRects(node.b, x + w / 2, y, w / 2, h, out); }
+    else { computeRects(node.a, x, y, w, h / 2, out); computeRects(node.b, x, y + h / 2, w, h / 2, out); }
+  }
+
+  function setActive(id) { W().active = id; render(); }
+  function focusActive() {
+    var l = activeLeaf(), p = l && panes[l.id]; if (!p) return;
+    // A fresh/blank pane: land in its address bar so you can type where to go.
+    if (!l.url || l.url === 'about:blank') { try { p.addr.focus(); return; } catch (e) {} }
+    try { p.frame.focus(); } catch (e) {}
+  }
+
+  function render() {
+    ensureDom();
+    root.classList.toggle('on', open);
+    if (!open) return;
+    // tabs
+    tabsEl.innerHTML = '';
+    S.windows.forEach(function (win, i) {
+      var t = document.createElement('div'); t.className = 'zt-tab' + (i === S.active ? ' act' : '');
+      t.textContent = (i) + ': ' + (win.name || label(win));
+      if (win.sync) { var s = document.createElement('span'); s.className = 'zt-sync'; s.textContent = '⇄'; t.appendChild(s); }
+      t.addEventListener('click', function () { S.active = i; render(); focusActive(); });
+      tabsEl.appendChild(t);
+    });
+    // panes: show only the active window's leaves, hide the rest (kept alive)
+    var cur = {}; leaves(W().tree).forEach(function (l) { cur[l.id] = l; if (!panes[l.id]) makePane(l); });
+    var rects = {}; paneRects = rects; computeRects(W().tree, 0, 0, 100, 100, rects);
+    var zoom = W().zoom;
+    Object.keys(panes).forEach(function (id) {
+      var p = panes[id];
+      if (!cur[id]) { p.wrap.style.display = 'none'; return; }       // belongs to another window
+      if (zoom && id !== zoom) { p.wrap.style.display = 'none'; return; }
+      var r = zoom ? { x: 0, y: 0, w: 100, h: 100 } : rects[id];
+      p.wrap.style.display = 'flex';
+      p.wrap.style.left = r.x + '%'; p.wrap.style.top = r.y + '%';
+      p.wrap.style.width = r.w + '%'; p.wrap.style.height = r.h + '%';
+      p.wrap.classList.toggle('act', id === W().active);
+    });
+    // status
+    var w = W();
+    statusEl.innerHTML = '';
+    add(statusEl, 'span', 'zwire tmux');
+    if (armed) add(statusEl, 'span', 'C-b', 'zt-armed');
+    add(statusEl, 'span', 'win ' + S.active + '/' + (S.windows.length - 1) + ' · panes ' + leaves(w.tree).length + (w.zoom ? ' · ZOOM' : '') + (w.sync ? ' · SYNC' : ''));
+    add(statusEl, 'span', 'C-b: % " o ←→ z x c n p e d', 'zt-sp');
+  }
+  function add(host, tag, txt, cls) { var e = document.createElement(tag); if (cls) e.className = cls; e.textContent = txt; host.appendChild(e); return e; }
+  function label(win) { var l = leaves(win.tree)[0]; try { return l.url ? new URL(normalizeUrl(l.url)).hostname.replace(/^www\./, '') : 'pane'; } catch (e) { return 'pane'; } }
+
+  /* -------------------------------- sync ---------------------------------- */
+  function broadcastSync(win) { leaves(win.tree).forEach(function (l) { var p = panes[l.id]; if (p) try { p.frame.contentWindow.postMessage({ __zbtmux: 1, setSync: win.sync }, '*'); } catch (e) {} }); }
+  function relaySync(source, key) {
+    var w = W(); if (!w.sync) return;
+    leaves(w.tree).forEach(function (l) {
+      var p = panes[l.id]; if (!p || p.frame.contentWindow === source) return;
+      try { p.frame.contentWindow.postMessage({ __zbtmux: 1, syncapply: key }, '*'); } catch (e) {}
+    });
+  }
+
+  /* ----------------------------- key handling ----------------------------- */
+  function armTop() { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); }, 2500); render(); }
   document.addEventListener('keydown', function (e) {
-    if (!armed) {
-      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
-        e.preventDefault(); e.stopImmediatePropagation(); arm();
-      }
+    if (armed) {
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+      armed = false; clearTimeout(armTimer);
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (e.key !== 'Escape') exec(e.key); else render();
       return;
     }
-    // armed — IGNORE a lone modifier keydown. The shifted commands (% ` " ` &)
-    // are typed as Shift+key, and the Shift keydown lands first; without this it
-    // would be treated as "the command", disarm, and eat the real key that
-    // follows — so split-down ("), split-right (%) and kill-window (&) silently
-    // did nothing. Keep the prefix armed until the actual character arrives.
-    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
-    // the next key is a tmux command
-    e.preventDefault(); e.stopImmediatePropagation(); disarm();
-    switch (e.key) {
-      case '%': tmux('split', { dir: 'right' }); indicator('split →'); break;
-      case '"': tmux('split', { dir: 'down' }); indicator('split ↓'); break;
-      case 'o': tmux('navigate', { dir: 'next' }); break;
-      case ';': tmux('navigate', { dir: 'prev' }); break;
-      case 'ArrowLeft': tmux('navigate', { dir: 'left' }); break;
-      case 'ArrowRight': tmux('navigate', { dir: 'right' }); break;
-      case 'ArrowUp': tmux('navigate', { dir: 'up' }); break;
-      case 'ArrowDown': tmux('navigate', { dir: 'down' }); break;
-      case 'z': tmux('zoom'); indicator('zoom'); break;
-      case 'x': tmux('closePane'); indicator('kill pane'); break;
-      case 'c': tmux('newWindow'); indicator('new window'); break;
-      case 'n': tmux('nextWindow'); break;
-      case 'p': tmux('prevWindow'); break;
-      case ' ': tmux('selectLayout'); indicator('layout'); break;
-      case 'e': tmux('syncToggle'); indicator('sync ⇄'); break;
-      case '&': tmux('killWindow'); indicator('kill window'); break;
-      case '?': if (window.__zbPaletteOpen) window.__zbPaletteOpen(); break;
-      default: break;
+    if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault(); e.stopImmediatePropagation(); armTop();
     }
   }, true);
 
-  /* ---- synchronize-panes ------------------------------------------------ */
-  var anySync = false;
-  function refreshSync() { try { chrome.storage.local.get('zb_tmux', function (o) { void chrome.runtime.lastError; anySync = !!(o && o.zb_tmux && o.zb_tmux.anySync); }); } catch (e) {} }
-  refreshSync();
-  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_tmux) refreshSync(); }); } catch (e) {}
+  // commands + sync relayed up from pane iframes
+  window.addEventListener('message', function (ev) {
+    var d = ev.data; if (!d || !d.__zbtmux) return;
+    if (d.prefix) { armed = true; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = false; render(); }, 2500); render(); }
+    else if (d.cmdKey) { armed = false; exec(d.cmdKey); }
+    else if (d.synckey) { relaySync(ev.source, d.synckey); }
+  });
 
-  // broadcast typed keys to sibling panes (bubble phase, after local apply).
-  document.addEventListener('keydown', function (e) {
-    if (!anySync || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (!editable(document.activeElement)) return;
-    if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace') {
-      try { chrome.runtime.sendMessage({ type: 'zbSync', key: e.key, code: e.code }, function () { void chrome.runtime.lastError; }); } catch (err) {}
-    }
-  }, false);
-
-  // apply a broadcast keystroke into our own focused field.
-  try {
-    chrome.runtime.onMessage.addListener(function (msg) {
-      if (!msg || msg.type !== 'zbSyncApply') return;
-      var el = document.activeElement; if (!editable(el)) return;
-      var k = msg.key, hasVal = ('value' in el);
-      if (k === 'Backspace') { if (hasVal) { el.value = el.value.slice(0, -1); el.dispatchEvent(new Event('input', { bubbles: true })); } else { try { document.execCommand('delete'); } catch (e) {} } }
-      else if (k === 'Enter') { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
-      else if (k && k.length === 1) { if (hasVal) { el.value += k; el.dispatchEvent(new Event('input', { bubbles: true })); } else { try { document.execCommand('insertText', false, k); } catch (e) {} } }
-    });
-  } catch (e) {}
+  // expose an opener for the ⌘K palette / vim ':' if they want it
+  window.__zbTmuxOpen = function () { open = true; render(); focusActive(); };
 })();

@@ -1,71 +1,129 @@
 #!/usr/bin/env bash
-# Install zwire into /Applications, live now (macOS, unsigned local install).
+# Install zwire into /Applications as a SELF-CONTAINED .app.
 #
-# The heavy 325MB base bundle lives under ~/.zwire/base and is launched by
-# bin/zwire with a dedicated profile + the fixed extension set (new-tab,
-# zpwrchrome, hud-internal). A raw copy of that bundle into /Applications would
-# launch as bare Chromium — no profile, no cyberpunk new-tab, no HUD. So instead
-# we install a small LAUNCHER-WRAPPER zwire.app whose executable execs THIS
-# checkout's bin/zwire: double-clicking it in /Applications opens the real zwire
-# (profile + extensions + HUD) exactly like `pnpm start`.
+# Unlike the old thin-wrapper install (which exec'd bin/zwire in this checkout),
+# this bundles EVERYTHING the browser needs INTO /Applications/zwire.app:
+#   Contents/Resources/browser/   the Chromium base bundle (the ~325MB browser)
+#   Contents/Resources/ext/       newtab · zpwrchrome · hud-internal extensions
+#   Contents/Resources/native/    zwire-host (Rust binary: scheme · sysinfo · PTY)
+#   Contents/MacOS/zwire          a bundle-relative launcher
+# So you can delete this repo (and ~/.zwire/base) and the app still runs — with
+# NO system dependencies (the native host is a self-contained Rust binary, not
+# python/psutil). The only thing kept outside is the user PROFILE
+# (~/.zwire/profile) — user data, like any app's ~/Library, not part of the app.
+#
+# Requires the Rust toolchain at build time (cargo). macOS .app here; the host
+# binary itself is cross-platform (sysinfo + portable-pty) for a future Linux/Win port.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export APP_TITLE="ZWIRE" APP_SUB="// chromium, rebranded"
+export APP_TITLE="ZWIRE" APP_SUB="// self-contained .app"
 source scripts/cyberpunk.sh
 
 ROOT="$(pwd)"
-LAUNCHER="$ROOT/bin/zwire"
 ICON="$ROOT/branding/zwire.icns"
 VERSION="$(python3 -c 'import json;print(json.load(open("package.json"))["version"])')"
 DEST="/Applications/zwire.app"
+RES="$DEST/Contents/Resources"
 
 cyber_banner
-cyber_status "OPERATION" "LOCALINSTALL // deploy to /Applications"
+cyber_status "OPERATION" "LOCALINSTALL // self-contained deploy to /Applications"
 echo
 
 cyber_section "PRE-FLIGHT"
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  cyber_fail "localinstall is macOS-only (/Applications .app deploy)"
+  cyber_fail "localinstall builds a macOS .app; Linux/Windows need separate packaging"
   exit 1
 fi
-if [[ ! -x "$LAUNCHER" ]]; then
-  cyber_fail "missing launcher: $LAUNCHER"
-  exit 1
-fi
-cyber_ok "launcher // $LAUNCHER"
-
-# Ensure the base browser exists so the wrapper has something to launch.
 STATE=${ZWIRE_STATE:-$HOME/.zwire}
 if [[ ! -f "$STATE/base.path" ]]; then
   cyber_warn "no base browser yet — building …"
   bash scripts/build.sh >/dev/null || { cyber_fail "base build failed"; exit 1; }
 fi
-cyber_ok "base browser present"
+BASE_BIN="$(cat "$STATE/base.path")"
+BASE_APP="${BASE_BIN%/Contents/MacOS/*}"          # …/zbrowser.app
+APP_DIRNAME="$(basename "$BASE_APP")"              # zbrowser.app
+[[ -d "$BASE_APP" ]] || { cyber_fail "base bundle missing: $BASE_APP"; exit 1; }
+cyber_ok "base bundle // $BASE_APP"
 echo
 
-cyber_section "BUILD WRAPPER .app"
+cyber_section "BUILD NATIVE HOST (rust)"
+export PATH="$HOME/.cargo/bin:$PATH"
+command -v cargo >/dev/null || { cyber_fail "cargo not found — install Rust (https://rustup.rs)"; exit 1; }
+( cd extensions/hud-internal/native/zwire-host && cargo build --release ) >/dev/null 2>&1 \
+  || { cyber_fail "native host build failed (cargo build --release)"; exit 1; }
+HOST_BIN="$ROOT/extensions/hud-internal/native/zwire-host/target/release/zwire-host"
+cyber_ok "host // zwire-host $(du -h "$HOST_BIN" | awk '{print $1}') (self-contained binary, no python)"
+echo
+
+cyber_section "BUILD SELF-CONTAINED .app"
 command rm -rf "$DEST"
-mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
+mkdir -p "$DEST/Contents/MacOS" "$RES/browser" "$RES/ext" "$RES/native"
 
-# Executable: exec this checkout's launcher (LaunchServices passes no args).
-cat > "$DEST/Contents/MacOS/zwire" <<EOF
+# 1) the browser bundle (biggest copy)
+cyber_status "COPY" "browser bundle (~$(du -sh "$BASE_APP" | awk '{print $1}')) …"
+cp -R "$BASE_APP" "$RES/browser/"
+cyber_ok "browser -> Resources/browser/$APP_DIRNAME"
+
+# 2) the extensions (skip node_modules/.git/tests to stay lean)
+for ext in newtab extensions/zpwrchrome extensions/hud-internal; do
+  name="$(basename "$ext")"
+  rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'tests' --exclude 'target' "$ROOT/$ext/" "$RES/ext/$name/"
+  cyber_ok "ext // $name"
+done
+
+# 3) the native host — a single self-contained Rust binary (no python/psutil)
+cp "$HOST_BIN" "$RES/native/zwire-host"
+chmod +x "$RES/native/zwire-host"
+cyber_ok "native // zwire-host (rust binary)"
+
+# 4) icon
+[[ -f "$ICON" ]] && cp "$ICON" "$RES/zwire.icns" && cyber_ok "icon // zwire.icns"
+
+# 5) bundle-relative launcher — resolves everything from inside the .app, installs
+#    the native-host manifest into the profile (pointing at the bundled host), and
+#    execs the bundled browser with the bundled extensions. Quoted heredoc keeps
+#    every $var literal, resolved at RUNTIME by the launcher.
+cat > "$DEST/Contents/MacOS/zwire" <<'LAUNCH'
 #!/bin/bash
-# zwire launcher wrapper — installed by scripts/localinstall.sh.
-# Opens the zwire browser (profile + extensions + HUD) via the repo launcher.
-exec "$LAUNCHER" "\$@"
-EOF
+set -euo pipefail
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+STATE="${ZWIRE_STATE:-$HOME/.zwire}"
+PROFILE="$STATE/profile"
+mkdir -p "$PROFILE/NativeMessagingHosts" "$PROFILE/Default/NativeMessagingHosts"
+read -r -d '' HOSTJSON <<JSON || true
+{
+  "name": "com.zwire.hud",
+  "description": "zwire HUD native host",
+  "path": "$RES/native/zwire-host",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://omcgnnjfmbmpdlofklbpddkhnfibfhgg/",
+    "chrome-extension://hpppdchpnphmiijdeanibpcadgknmaja/",
+    "chrome-extension://gpoepnekoiplhkegjpocnpeijiefgieb/"
+  ]
+}
+JSON
+printf '%s\n' "$HOSTJSON" > "$PROFILE/NativeMessagingHosts/com.zwire.hud.json"
+printf '%s\n' "$HOSTJSON" > "$PROFILE/Default/NativeMessagingHosts/com.zwire.hud.json"
+BROWSER_APP="$(ls -d "$RES/browser/"*.app | head -1)"
+EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$BROWSER_APP/Contents/Info.plist")"
+LOAD="$RES/ext/newtab,$RES/ext/zpwrchrome,$RES/ext/hud-internal"
+exec "$BROWSER_APP/Contents/MacOS/$EXE" \
+  --user-data-dir="$PROFILE" \
+  --load-extension="$LOAD" \
+  --extensions-on-chrome-urls \
+  --test-type \
+  --no-first-run \
+  --no-default-browser-check \
+  --homepage="chrome://newtab" \
+  --disable-features=NtpFooter \
+  --enable-features=SplitViewHorizontal,SplitViewTabRestore \
+  "$@"
+LAUNCH
 chmod +x "$DEST/Contents/MacOS/zwire"
-cyber_ok "executable -> $LAUNCHER"
+cyber_ok "launcher // bundle-relative"
 
-# Icon.
-if [[ -f "$ICON" ]]; then
-  cp "$ICON" "$DEST/Contents/Resources/zwire.icns"
-  cyber_ok "icon // branding/zwire.icns"
-else
-  cyber_warn "branding/zwire.icns not found — no custom icon"
-fi
-
-# PkgInfo + Info.plist.
+# 6) Info.plist + PkgInfo
 printf 'APPL????' > "$DEST/Contents/PkgInfo"
 cat > "$DEST/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -89,8 +147,6 @@ cyber_ok "Info.plist // v${VERSION}"
 echo
 
 cyber_section "SEAL + REGISTER"
-# Ad-hoc sign so Gatekeeper/LaunchServices accept the fresh bundle, then refresh
-# the LaunchServices icon/name cache so the Dock shows the cyberpunk icon now.
 codesign --force --sign - "$DEST" 2>/dev/null && cyber_ok "ad-hoc signed" \
   || cyber_warn "ad-hoc sign failed (icon may lag)"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -98,7 +154,6 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 touch "$DEST"
 echo
 cyber_line
-
 SIZE=$(du -sh "$DEST" | awk '{print $1}')
-cyber_ok "installed // ${SIZE} // $DEST"
+cyber_ok "installed // ${SIZE} // $DEST  (self-contained — repo can be deleted)"
 cyber_tagline "ZWIRE DEPLOYED. LAUNCH FROM /Applications."

@@ -4,3 +4,6 @@
 [submodule "extensions/hud-internal/lib/zgui-core"]
 	path = extensions/hud-internal/lib/zgui-core
 	url = https://github.com/MenkeTechnologies/zgui-core.git
+[submodule "extensions/hud-internal/native/zwire-host"]
+	path = extensions/hud-internal/native/zwire-host
+	url = https://github.com/MenkeTechnologies/zwire-host.git
