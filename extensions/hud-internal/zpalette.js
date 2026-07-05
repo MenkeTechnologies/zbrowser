@@ -69,13 +69,47 @@
     ['⚡', 'CI runs', 'ci.html'], ['⌨', 'Shortcuts', 'keys.html'], ['⌨', 'Extension shortcuts', 'extshortcuts.html'],
     ['✦', 'Custom commands', 'commands.html'], ['⚉', 'System info', 'version.html']];
   var CHROME = [['+', 'New tab', 'chrome://newtab'], ['▼', 'Downloads', 'chrome://downloads'],
+    ['◷', 'History', 'chrome://history'], ['★', 'Bookmarks', 'chrome://bookmarks'],
+    ['⬡', 'Extensions', 'chrome://extensions'], ['⚙', 'Settings', 'chrome://settings'],
+    ['⚉', 'Version', 'chrome://version'], ['⚙', 'System', 'chrome://system'],
     ['⚑', 'Flags', 'chrome://flags'], ['✧', 'Discards', 'chrome://discards'],
     ['⌗', 'DNS', 'chrome://net-internals/#dns'], ['▤', 'GPU', 'chrome://gpu'],
     ['⇅', 'Net internals', 'chrome://net-internals'], ['⚿', 'Passwords', 'chrome://password-manager'],
-    ['◎', 'Inspect devices', 'chrome://inspect'],
-    ['⇩', 'Net export', 'chrome://net-export'], ['§', 'Policy', 'chrome://policy'],
-    ['⊛', 'Components', 'chrome://components'], ['≡', 'All chrome:// pages', 'chrome://about'],
-    ['✎', 'Site settings', 'chrome://settings/content']];
+    ['◎', 'Inspect devices', 'chrome://inspect'], ['⇩', 'Net export', 'chrome://net-export'],
+    ['§', 'Policy', 'chrome://policy'], ['⊛', 'Components', 'chrome://components'],
+    ['⬡', 'Management', 'chrome://management'], ['♿', 'Accessibility', 'chrome://accessibility'],
+    ['⌕', 'Omnibox debug', 'chrome://omnibox'], ['◉', 'Media internals', 'chrome://media-internals'],
+    ['◉', 'WebRTC internals', 'chrome://webrtc-internals'], ['⚙', 'Service workers', 'chrome://serviceworker-internals'],
+    ['⚙', 'IndexedDB', 'chrome://indexeddb-internals'], ['⚙', 'Quota', 'chrome://quota-internals'],
+    ['⚙', 'Blob', 'chrome://blob-internals'], ['📊', 'Histograms', 'chrome://histograms'],
+    ['◈', 'Tracing', 'chrome://tracing'], ['⚠', 'Crashes', 'chrome://crashes'],
+    ['⚙', 'Device log', 'chrome://device-log'], ['⚙', 'GCM internals', 'chrome://gcm-internals'],
+    ['⚙', 'Sync internals', 'chrome://sync-internals'], ['⚙', 'Process internals', 'chrome://process-internals'],
+    ['⚙', 'Autofill internals', 'chrome://autofill-internals'], ['⚙', 'Download internals', 'chrome://download-internals'],
+    ['⚙', 'Signin internals', 'chrome://signin-internals'], ['⚙', 'Translate internals', 'chrome://translate-internals'],
+    ['⚙', 'User actions', 'chrome://user-actions'], ['⚙', 'UKM', 'chrome://ukm'],
+    ['⚙', 'Predictors', 'chrome://predictors'], ['⚙', 'Memory internals', 'chrome://memory-internals'],
+    ['◈', 'WebUI gallery', 'chrome://webui-gallery'], ['≡', 'All chrome:// pages', 'chrome://about']];
+  // chrome://settings sub-pages (the "tabs" inside Settings) — each opens direct.
+  var SETTINGS = [['You & Google', 'chrome://settings/syncSetup'],
+    ['Appearance', 'chrome://settings/appearance'],
+    ['Autofill & passwords', 'chrome://settings/autofill'],
+    ['Payment methods', 'chrome://settings/payments'],
+    ['Addresses', 'chrome://settings/addresses'],
+    ['Privacy & security', 'chrome://settings/privacy'],
+    ['Security', 'chrome://settings/security'],
+    ['Cookies & site data', 'chrome://settings/cookies'],
+    ['Site settings', 'chrome://settings/content'],
+    ['Clear browsing data', 'chrome://settings/clearBrowserData'],
+    ['Performance', 'chrome://settings/performance'],
+    ['Search engine', 'chrome://settings/search'],
+    ['Default browser', 'chrome://settings/defaultBrowser'],
+    ['On startup', 'chrome://settings/onStartup'],
+    ['Languages', 'chrome://settings/languages'],
+    ['Downloads', 'chrome://settings/downloads'],
+    ['Accessibility', 'chrome://settings/accessibility'],
+    ['System', 'chrome://settings/system'],
+    ['Reset settings', 'chrome://settings/reset']];
   var WEB = [['◈', 'Chrome Web Store', 'https://chromewebstore.google.com/'],
     ['⌂', 'zwire app store', 'https://menketechnologies.github.io/app-store/']];
 
@@ -84,6 +118,7 @@
     cmdItems().forEach(function (c) { out.push(c); });
     PAGES.forEach(function (p) { out.push({ icon: p[0], label: 'Go: ' + p[1], detail: p[2], run: function () { open(extUrl(p[2])); } }); });
     CHROME.forEach(function (p) { out.push({ icon: p[0], label: 'Open: ' + p[1], detail: p[2], run: function () { open(p[2]); } }); });
+    SETTINGS.forEach(function (p) { out.push({ icon: '⚙', label: 'Settings: ' + p[0], detail: p[1], run: function () { open(p[1]); } }); });
     WEB.forEach(function (p) { out.push({ icon: p[0], label: 'Open: ' + p[1], detail: p[2], run: function () { open(p[2]); } }); });
     ORDER.forEach(function (n) { var s = SCHEMES[n]; if (!s) return; out.push({ icon: '◐', label: 'Scheme: ' + (s.label || n), detail: 'theme the whole browser', run: function () { setScheme(n); } }); });
     return out;

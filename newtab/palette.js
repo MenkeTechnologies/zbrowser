@@ -50,14 +50,50 @@
     ['▤', 'GPU', 'chrome://gpu'], ['⌗', 'DNS', 'chrome://net-internals/#dns'],
     ['⚿', 'Passwords', 'chrome://password-manager'], ['⌨', 'Keyboard shortcuts', 'chrome://extensions/shortcuts'],
     ['◎', 'Inspect devices', 'chrome://inspect'], ['§', 'Policy', 'chrome://policy'],
-    ['⊛', 'Components', 'chrome://components'], ['≡', 'All chrome:// pages', 'chrome://about'],
+    ['⊛', 'Components', 'chrome://components'], ['⚙', 'System', 'chrome://system'],
+    ['⚉', 'Version', 'chrome://version'], ['⬡', 'Management', 'chrome://management'],
+    ['♿', 'Accessibility', 'chrome://accessibility'], ['⌕', 'Omnibox debug', 'chrome://omnibox'],
+    ['◉', 'Media internals', 'chrome://media-internals'], ['◉', 'WebRTC internals', 'chrome://webrtc-internals'],
+    ['⚙', 'Service workers', 'chrome://serviceworker-internals'], ['⚙', 'IndexedDB', 'chrome://indexeddb-internals'],
+    ['⚙', 'Quota', 'chrome://quota-internals'], ['⚙', 'Blob', 'chrome://blob-internals'],
+    ['📊', 'Histograms', 'chrome://histograms'], ['◈', 'Tracing', 'chrome://tracing'],
+    ['⚠', 'Crashes', 'chrome://crashes'], ['⚙', 'Device log', 'chrome://device-log'],
+    ['⚙', 'GCM internals', 'chrome://gcm-internals'], ['⚙', 'Sync internals', 'chrome://sync-internals'],
+    ['⚙', 'Process internals', 'chrome://process-internals'], ['⚙', 'Autofill internals', 'chrome://autofill-internals'],
+    ['⚙', 'Download internals', 'chrome://download-internals'], ['⚙', 'Signin internals', 'chrome://signin-internals'],
+    ['⚙', 'Translate internals', 'chrome://translate-internals'], ['⚙', 'User actions', 'chrome://user-actions'],
+    ['⚙', 'UKM', 'chrome://ukm'], ['⚙', 'Predictors', 'chrome://predictors'],
+    ['⚙', 'Memory internals', 'chrome://memory-internals'], ['◈', 'WebUI gallery', 'chrome://webui-gallery'],
+    ['✧', 'Discards', 'chrome://discards'], ['⇅', 'Net internals', 'chrome://net-internals'],
+    ['⇩', 'Net export', 'chrome://net-export'], ['≡', 'All chrome:// pages', 'chrome://about'],
     ['⚡', 'CI runs', 'chrome-extension://omcgnnjfmbmpdlofklbpddkhnfibfhgg/pages/ci.html'],
     ['◈', 'Chrome Web Store', 'https://chromewebstore.google.com/'],
     ['⌂', 'zwire app store', 'https://menketechnologies.github.io/app-store/']];
+  // chrome://settings sub-pages (the "tabs" inside Settings).
+  var SETTINGS = [['You & Google', 'chrome://settings/syncSetup'],
+    ['Appearance', 'chrome://settings/appearance'],
+    ['Autofill & passwords', 'chrome://settings/autofill'],
+    ['Payment methods', 'chrome://settings/payments'],
+    ['Addresses', 'chrome://settings/addresses'],
+    ['Privacy & security', 'chrome://settings/privacy'],
+    ['Security', 'chrome://settings/security'],
+    ['Cookies & site data', 'chrome://settings/cookies'],
+    ['Site settings', 'chrome://settings/content'],
+    ['Clear browsing data', 'chrome://settings/clearBrowserData'],
+    ['Performance', 'chrome://settings/performance'],
+    ['Search engine', 'chrome://settings/search'],
+    ['Default browser', 'chrome://settings/defaultBrowser'],
+    ['On startup', 'chrome://settings/onStartup'],
+    ['Languages', 'chrome://settings/languages'],
+    ['Downloads', 'chrome://settings/downloads'],
+    ['Accessibility', 'chrome://settings/accessibility'],
+    ['System', 'chrome://settings/system'],
+    ['Reset settings', 'chrome://settings/reset']];
 
   function items() {
     var out = [];
     PAGES.forEach(function (p) { out.push({ icon: p[0], label: 'Open: ' + p[1], detail: p[2], run: function () { goCurrent(p[2]); } }); });
+    SETTINGS.forEach(function (p) { out.push({ icon: '⚙', label: 'Settings: ' + p[0], detail: p[1], run: function () { goCurrent(p[1]); } }); });
     ORDER.forEach(function (n) { var s = SCHEMES[n]; if (!s) return; out.push({ icon: '◐', label: 'Scheme: ' + (s.label || n), detail: 'theme the browser', run: function () { setScheme(n); } }); });
     return out;
   }

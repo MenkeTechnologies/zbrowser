@@ -26,6 +26,7 @@
     u('ytmusic', '🎧', 'YouTube Music', 'ytm', 'https://music.youtube.com/search?q={q}'),
     u('bing', '🔎', 'Bing', 'bing', 'https://www.bing.com/search?q={q}'),
     u('kagi', '🧭', 'Kagi', 'kagi', 'https://kagi.com/search?q={q}'),
+    u('github', '🐙', 'GitHub', 'gh', 'https://github.com/search?q={q}'),
     u('gist', '📝', 'GitHub Gist', 'gist', 'https://gist.github.com/search?q={q}'),
     u('gpr', '🔀', 'GitHub PRs', 'pr', 'https://github.com/pulls'),
     u('gissues', '🐛', 'GitHub Issues', 'iss', 'https://github.com/issues'),

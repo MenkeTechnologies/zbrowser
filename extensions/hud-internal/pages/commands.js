@@ -119,6 +119,15 @@
       type: type,
       value: String(value)
     };
+    // No two commands may share a keyword — a duplicate would make `kw` in ⌘K
+    // ambiguous. Reject and point at the existing owner.
+    if (entry.keyword) {
+      var dup = null;
+      for (var d = 0; d < cmds.length; d++) {
+        if (cmds[d].id !== entry.id && (cmds[d].keyword || '').toLowerCase() === entry.keyword) { dup = cmds[d]; break; }
+      }
+      if (dup) { toast('Keyword "' + entry.keyword + '" is already used by "' + dup.label + '"'); return; }
+    }
     if (wasEdit) { for (var i = 0; i < cmds.length; i++) { if (cmds[i].id === editingId) { cmds[i] = entry; break; } } }
     else cmds.push(entry);
     persist(); resetForm(); drawTable(); toast(wasEdit ? 'Updated' : 'Added');
