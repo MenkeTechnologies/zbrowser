@@ -18,3 +18,6 @@
 0009-ext-command-focus-webcontents.patch  # extension_keybinding_registry_views.cc -> when an extension command fires while chrome UI (the omnibox/search bar) has focus, hand focus to the page web contents so the ⌘K palette overlay is typeable (VERIFIED @150.0.7871.46)
 0010-newtab-force-zwire.patch       # search.cc -> chrome://newtab always resolves to the zwire newtab extension (never the default Google NTP) when it's loaded (VERIFIED @150.0.7871.46)
 0011-pinned-extensions-always-show.patch  # toolbar_view.cc -> hold the extensions container at preferred width so pinned actions never drop to the puzzle overflow on runtime re-pin (VERIFIED @150.0.7871.46)
+0012-allow-frame-src.patch          # navigation_request.cc -> a host page CSP frame-src/child-src never blocks a sub-frame nav (tmux iframes embed any site) (VERIFIED @150.0.7871.46)
+0013-default-restore-last-session.patch  # session_startup_pref.cc -> default startup = restore last session (auto-restore tabs)
+0014-no-session-crashed-bubble.patch    # session_crashed_bubble_view.cc -> never show the "Restore pages?" crash bubble (auto-restore instead)

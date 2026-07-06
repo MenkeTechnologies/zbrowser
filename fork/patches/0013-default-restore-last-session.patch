@@ -1,0 +1,23 @@
+diff --git a/chrome/browser/prefs/session_startup_pref.cc b/chrome/browser/prefs/session_startup_pref.cc
+index dd071315ef..48220d034c 100644
+--- a/chrome/browser/prefs/session_startup_pref.cc
++++ b/chrome/browser/prefs/session_startup_pref.cc
+@@ -67,16 +67,9 @@ void SessionStartupPref::RegisterProfilePrefs(
+ 
+ // static
+ SessionStartupPref::Type SessionStartupPref::GetDefaultStartupType() {
+-#if BUILDFLAG(IS_CHROMEOS)
++  // zwire: always continue where you left off — auto-restore the last session's
++  // tabs on startup, like the user expects, instead of opening a fresh NTP.
+   return SessionStartupPref::LAST;
+-#else
+-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)
+-  if (features::kSetDefaultToContinueSession.Get()) {
+-    return SessionStartupPref::LAST;
+-  }
+-#endif
+-  return SessionStartupPref::DEFAULT;
+-#endif
+ }
+ 
+ // static

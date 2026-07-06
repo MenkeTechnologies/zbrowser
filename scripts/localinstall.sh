@@ -146,6 +146,7 @@ exec "$BROWSER_APP/Contents/MacOS/$EXE" \
   --homepage="chrome://newtab" \
   --disable-features=NtpFooter \
   --enable-features=SplitViewHorizontal,SplitViewTabRestore \
+  --restore-last-session \
   "$@"
 LAUNCH
 chmod +x "$DEST/Contents/MacOS/zwire"

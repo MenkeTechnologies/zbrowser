@@ -1,0 +1,35 @@
+diff --git a/chrome/browser/ui/views/session_crashed_bubble_view.cc b/chrome/browser/ui/views/session_crashed_bubble_view.cc
+index 495fa2d9e0..994e4101a7 100644
+--- a/chrome/browser/ui/views/session_crashed_bubble_view.cc
++++ b/chrome/browser/ui/views/session_crashed_bubble_view.cc
+@@ -217,27 +217,9 @@ class SessionCrashedBubbleView::BrowserRemovalObserver
+ void SessionCrashedBubble::ShowIfNotOffTheRecordProfile(
+     BrowserWindowInterface* browser,
+     bool skip_tab_checking) {
+-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+-  if (browser->GetProfile()->IsOffTheRecord()) {
+-    return;
+-  }
+-
+-  // Observes possible browser removal before Show is called.
+-  auto browser_observer =
+-      std::make_unique<SessionCrashedBubbleView::BrowserRemovalObserver>(
+-          browser);
+-
+-  if (DoesSupportConsentCheck()) {
+-    GoogleUpdateSettings::CollectStatsConsentTaskRunner()
+-        ->PostTaskAndReplyWithResult(
+-            FROM_HERE,
+-            base::BindOnce(&GoogleUpdateSettings::GetCollectStatsConsent),
+-            base::BindOnce(&SessionCrashedBubbleView::Show,
+-                           std::move(browser_observer), skip_tab_checking));
+-  } else {
+-    SessionCrashedBubbleView::Show(std::move(browser_observer),
+-                                   skip_tab_checking, false);
+-  }
++  // zwire: never show the "Restore pages? / didn't shut down correctly" bubble.
++  // The startup pref defaults to LAST (auto-restore), so tabs come back on their
++  // own — no prompt needed.
+ }
+ 
+ // static

@@ -1,0 +1,18 @@
+diff --git a/content/browser/renderer_host/navigation_request.cc b/content/browser/renderer_host/navigation_request.cc
+index 20c86f039d..c51b56ccdc 100644
+--- a/content/browser/renderer_host/navigation_request.cc
++++ b/content/browser/renderer_host/navigation_request.cc
+@@ -7809,7 +7809,12 @@ net::Error NavigationRequest::CheckCSPDirectives(
+                 : network::mojom::CSPDirectiveName::FrameSrc,
+             has_followed_redirect, url_upgraded_after_redirect,
+             is_opaque_fenced_frame_root_navigation, disposition)) {
+-      error = net::ERR_BLOCKED_BY_CSP;
++      // zwire: allow ANY page to frame ANY url — the in-page tmux overlay tiles
++      // arbitrary sites in iframes, so a host page's CSP frame-src / child-src
++      // must never block the sub-frame navigation. This browser-side check is
++      // what the extension DNR header-strip (frame_bust.json) can't reliably
++      // reach, so the "This content is blocked" interstitial still showed.
++      // error = net::ERR_BLOCKED_BY_CSP;
+     }
+   }
+ 
