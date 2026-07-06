@@ -68,7 +68,7 @@
     ['◷', 'History', 'history.html'], ['★', 'Bookmarks', 'bookmarks.html'],
     ['⚡', 'CI runs', 'ci.html'], ['⌨', 'Shortcuts', 'keys.html'], ['⌨', 'Extension shortcuts', 'extshortcuts.html'],
     ['✦', 'Custom commands', 'commands.html'], ['▦', 'Sessions', 'sessions.html'],
-    ['⊞', 'App Store', 'store.html'], ['⚉', 'System info', 'version.html']];
+    ['⊞', 'App Store', 'store.html'], ['⧉', 'Host (zwire-host)', 'host.html'], ['⚉', 'System info', 'version.html']];
   var CHROME = [['+', 'New tab', 'chrome://newtab'], ['▼', 'Downloads', 'chrome://downloads'],
     ['◷', 'History', 'chrome://history'], ['★', 'Bookmarks', 'chrome://bookmarks'],
     ['⬡', 'Extensions', 'chrome://extensions'], ['⚙', 'Settings', 'chrome://settings'],
@@ -183,6 +183,14 @@
       default: cmd({ a: id });   // newTab/newWindow/duplicateTab/reopenTab/closeTab/closeOthers/nextTab/prevTab/pinTab/muteTab
     }
   }
+  // Small transient toast for host-command feedback (content script — may not
+  // have ZGui.toast; fall back to a self-styled corner popup).
+  function hostToast(text, bad) {
+    try { if (window.ZGui && ZGui.toast) { ZGui.toast(text); return; } } catch (e) {}
+    var d = document.createElement('div'); d.textContent = text;
+    d.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#0a0d16;color:' + (bad ? '#ff2a6d' : '#05d9e8') + ';border:1px solid currentColor;padding:8px 12px;font:12px "Share Tech Mono",monospace;border-radius:4px;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    (document.body || document.documentElement).appendChild(d); setTimeout(function () { try { d.remove(); } catch (e) {} }, 3200);
+  }
   function runCustom(e, arg) {
     var v = e.value || '';
     if (e.type === 'shell') {
@@ -196,6 +204,18 @@
     }
     if (e.type === 'action') { runAction(v); return; }
     if (e.type === 'scheme') { setScheme(v); return; }
+    if (e.type === 'host') {
+      var raw = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : v;
+      var obj; try { obj = JSON.parse(raw); } catch (err) { hostToast('host: invalid JSON', true); return; }
+      try {
+        chrome.runtime.sendMessage({ type: 'zb-host', req: obj }, function (res) {
+          void chrome.runtime.lastError;
+          if (!res || !res.ok) { hostToast('host: ' + ((res && res.err) || 'no response'), true); return; }
+          var r = res.reply; hostToast('host ◂ ' + (r && typeof r === 'object' ? JSON.stringify(r).slice(0, 140) : String(r)));
+        });
+      } catch (err) { hostToast('host: ' + err, true); }
+      return;
+    }
     var url = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, encodeURIComponent(arg || '')) : v;   // url (default)
     if (url) open(url);
   }

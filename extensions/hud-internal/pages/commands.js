@@ -18,9 +18,10 @@
     { value: 'shell', label: 'Run shell command' },
     { value: 'js', label: 'Run JavaScript' },
     { value: 'action', label: 'Browser action' },
-    { value: 'scheme', label: 'Set color scheme' }
+    { value: 'scheme', label: 'Set color scheme' },
+    { value: 'host', label: 'zwire-host (JSON)' }
   ];
-  var TYPE_LABEL = { url: 'open url', shell: 'shell', js: 'javascript', action: 'action', scheme: 'scheme' };
+  var TYPE_LABEL = { url: 'open url', shell: 'shell', js: 'javascript', action: 'action', scheme: 'scheme', host: 'host' };
   var ACTIONS = [
     ['newTab', 'New tab'], ['newWindow', 'New window'], ['duplicateTab', 'Duplicate tab'],
     ['reopenTab', 'Reopen closed tab'], ['closeTab', 'Close tab'], ['closeOthers', 'Close other tabs'],
@@ -36,7 +37,8 @@
     shell: 'Runs in the popup terminal (zwire-host PTY). {q} = the typed argument; otherwise the argument is appended.',
     js: 'JavaScript run in the extension isolated world (has chrome.*). The variable `q` holds the typed argument.',
     action: 'Trigger a built-in browser action under your own name.',
-    scheme: 'Switch the whole browser color scheme.'
+    scheme: 'Switch the whole browser color scheme.',
+    host: 'Sends a JSON message to zwire-host and shows the reply. Use {q} for the typed argument — e.g. {"cmd":"notify","title":"{q}"} or {"cmd":"exec","argv":["say","{q}"]}. See the HOST tab to explore commands.'
   };
 
   function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
@@ -74,6 +76,7 @@
     if (type === 'action') valueCtl = Z.select({ options: opt(ACTIONS), value: val || 'newTab' });
     else if (type === 'scheme') valueCtl = Z.select({ options: opt(SCHEMES), value: val || 'cyberpunk' });
     else if (type === 'js') valueCtl = Z.textarea({ placeholder: "alert('hi ' + q + '!')", rows: 4, value: val || '' });
+    else if (type === 'host') valueCtl = Z.textarea({ placeholder: '{"cmd":"notify","title":"hi {q}"}', rows: 3, value: val || '' });
     else valueCtl = Z.textfield({ placeholder: type === 'shell' ? 'git status   ({q} for args)' : 'https://example.com   ({q} optional)', value: val || '' });
     valueHost.appendChild(valueCtl.el);
     valueHint.textContent = HINTS[type] || '';
@@ -128,7 +131,8 @@
     if (!label) { toast('Label is required'); return; }
     var type = typeSel.get();
     var value = valueCtl && valueCtl.get ? valueCtl.get() : '';
-    if ((type === 'url' || type === 'shell' || type === 'js') && !String(value).trim()) { toast('Value is required'); return; }
+    if ((type === 'url' || type === 'shell' || type === 'js' || type === 'host') && !String(value).trim()) { toast('Value is required'); return; }
+    if (type === 'host') { try { JSON.parse(String(value).replace(/\{q\}/g, '')); } catch (e) { toast('Host value must be valid JSON'); return; } }
     var wasEdit = !!editingId;
     var entry = {
       id: editingId || uid(),

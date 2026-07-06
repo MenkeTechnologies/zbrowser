@@ -16,7 +16,8 @@
     ['APP STORE', 'store.html'],
     ['HISTORY', 'history.html'], ['DOWNLOADS', 'chrome://downloads'], ['BOOKMARKS', 'bookmarks.html'],
     ['CI', 'ci.html'], ['SHORTCUTS', 'keys.html'], ['EXT KEYS', 'extshortcuts.html'],
-    ['COMMANDS', 'commands.html'], ['SESSIONS', 'sessions.html'], ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
+    ['COMMANDS', 'commands.html'], ['SESSIONS', 'sessions.html'], ['HOST', 'host.html'],
+    ['SYSTEM', 'version.html'], ['NEW TAB', 'chrome://newtab']];
   var NATIVE_PAGES = [['FLAGS', 'chrome://flags'], ['DISCARDS', 'chrome://discards'],
     ['DNS', 'chrome://net-internals/#dns'], ['GPU', 'chrome://gpu'], ['NET', 'chrome://net-internals']];
   // Extra palette-only destinations (not shown as nav buttons): more chrome://
@@ -42,6 +43,17 @@
     if (e.type === 'scheme') {
       try { chrome.runtime.sendNativeMessage(HOST, { scheme: v }, function () { void chrome.runtime.lastError; }); } catch (x) {}
       try { chrome.storage.local.set({ zb_scheme: v }); if (ZGui.colorscheme) ZGui.colorscheme.apply(v); } catch (x) {}
+      return;
+    }
+    if (e.type === 'host') {   // extension page can talk to the native host directly
+      var raw = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : v;
+      var obj; try { obj = JSON.parse(raw); } catch (err) { if (ZGui.toast) ZGui.toast('host: invalid JSON'); return; }
+      try {
+        chrome.runtime.sendNativeMessage(HOST, obj, function (reply) {
+          var err = chrome.runtime.lastError;
+          if (ZGui.toast) ZGui.toast('host ◂ ' + (err ? err.message : (reply && typeof reply === 'object' ? JSON.stringify(reply).slice(0, 140) : String(reply))));
+        });
+      } catch (err) { if (ZGui.toast) ZGui.toast('host: ' + err); }
       return;
     }
     var url = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, encodeURIComponent(arg || '')) : v;

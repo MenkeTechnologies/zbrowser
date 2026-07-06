@@ -7,11 +7,29 @@
   var esc = (Z.util && Z.util.escapeHtml) || function (s) { return String(s == null ? '' : s); };
 
   // Keep in sync with package.json "version".
-  var ZWIRE_VERSION = '0.2.1';
+  var ZWIRE_VERSION = '0.4.0';
   var HOST = 'com.zwire.hud';
 
-  var shell = window.ZBHUD.mount({ title: 'SYSTEM', current: 'version.html', filterPlaceholder: 'filter…', onFilter: function () {} });
+  var shell = window.ZBHUD.mount({ title: 'SYSTEM', current: 'version.html', filterPlaceholder: 'filter…', onFilter: function (v) { filterAll(v); } });
   var body = shell.body;
+
+  // Live filter: show only rows (and their card) whose key/value — or the card
+  // header — match the query; hide cards with nothing left.
+  var curFilter = '';
+  function filterAll(v) {
+    curFilter = (v || '').trim().toLowerCase();
+    Array.prototype.forEach.call(body.children, function (cardEl) {
+      var rows = cardEl.querySelectorAll('.info-row'); if (!rows.length) return;
+      var header = cardEl.querySelector('.set-h');
+      var headMatch = curFilter && header && header.textContent.toLowerCase().indexOf(curFilter) >= 0;
+      var anyVisible = false;
+      Array.prototype.forEach.call(rows, function (row) {
+        var show = !curFilter || headMatch || row.textContent.toLowerCase().indexOf(curFilter) >= 0;
+        row.style.display = show ? '' : 'none'; if (show) anyVisible = true;
+      });
+      cardEl.style.display = anyVisible ? '' : 'none';
+    });
+  }
 
   var nav = navigator, ua = nav.userAgent;
   var chromium = (ua.match(/Chrom(?:e|ium)\/([\d.]+)/) || [])[1] || 'unknown';
@@ -59,6 +77,7 @@
     var fresh = card('NATIVE HOST', rows);
     body.replaceChild(fresh, hostCard);
     hostCard = fresh;
+    if (curFilter) filterAll(curFilter);   // keep an active filter applied across the async swap
   }
   try {
     chrome.runtime.sendNativeMessage(HOST, { cmd: 'get' }, function (r) {

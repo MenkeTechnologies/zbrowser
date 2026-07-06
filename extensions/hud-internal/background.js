@@ -458,6 +458,18 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     mirror(msg.scheme);
     return;
   }
+  // zwire-host relay: content scripts can't call sendNativeMessage, so custom
+  // `host`-type commands (and anything else in a page) send the JSON here and we
+  // forward it to the native host, returning its JSON reply.
+  if (msg && msg.type === 'zb-host' && msg.req) {
+    try {
+      chrome.runtime.sendNativeMessage(HOST, msg.req, function (reply) {
+        if (chrome.runtime.lastError) { sendResponse({ ok: false, err: chrome.runtime.lastError.message }); return; }
+        sendResponse({ ok: true, reply: reply });
+      });
+    } catch (e) { sendResponse({ ok: false, err: String(e) }); }
+    return true;   // async sendResponse
+  }
   // Command-palette navigation: a content script can't open chrome://, an
   // extension page, or a new tab itself — do it here.
   if (msg && msg.type === 'zbopen' && msg.url) {
