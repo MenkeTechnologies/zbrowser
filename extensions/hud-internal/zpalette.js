@@ -67,7 +67,8 @@
   var PAGES = [['◈', 'Extensions', 'extensions.html'], ['⚙', 'Settings', 'settings.html'],
     ['◷', 'History', 'history.html'], ['★', 'Bookmarks', 'bookmarks.html'],
     ['⚡', 'CI runs', 'ci.html'], ['⌨', 'Shortcuts', 'keys.html'], ['⌨', 'Extension shortcuts', 'extshortcuts.html'],
-    ['✦', 'Custom commands', 'commands.html'], ['⚉', 'System info', 'version.html']];
+    ['✦', 'Custom commands', 'commands.html'], ['▦', 'Sessions', 'sessions.html'],
+    ['⊞', 'App Store', 'store.html'], ['⚉', 'System info', 'version.html']];
   var CHROME = [['+', 'New tab', 'chrome://newtab'], ['▼', 'Downloads', 'chrome://downloads'],
     ['◷', 'History', 'chrome://history'], ['★', 'Bookmarks', 'chrome://bookmarks'],
     ['⬡', 'Extensions', 'chrome://extensions'], ['⚙', 'Settings', 'chrome://settings'],

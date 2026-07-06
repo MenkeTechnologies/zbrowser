@@ -983,15 +983,27 @@
     return m;
   }
   function showChooser() {
-    modal(function (card) {
-      card.innerHTML = '<h4>windows</h4>';
+    var cur = S.active, rows = [], ref;
+    function paint() { rows.forEach(function (r, i) { r.className = 'zt-wrow' + (i === cur ? ' sel' : ''); }); var s = rows[cur]; if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' }); }
+    function pick(i) { selectWindowNum(i); render(); focusActive(); if (ref) ref.close(); }
+    ref = modal(function (card) {
+      card.innerHTML = '<h4>windows — ↑/↓ or j/k, Enter to select, Esc to close</h4>';
       S.windows.forEach(function (win, i) {
-        var row = document.createElement('div'); row.className = 'zt-wrow' + (i === S.active ? ' sel' : '');
+        var row = document.createElement('div'); row.className = 'zt-wrow' + (i === cur ? ' sel' : '');
         row.textContent = i + ': ' + (win.name || label(win)) + '  (' + leaves(win.tree).length + ' panes)';
-        row.addEventListener('click', function () { S.active = i; render(); focusActive(); var m = card.parentNode; if (m) m.remove(); });
-        card.appendChild(row);
+        row.addEventListener('click', function () { pick(i); });
+        rows.push(row); card.appendChild(row);
       });
-    }, function (k, close) { if (/^[0-9]$/.test(k)) { selectWindowNum(parseInt(k, 10)); render(); close(); return false; } });
+    }, function (k, close) {
+      if (/^[0-9]$/.test(k)) { pick(parseInt(k, 10)); return false; }
+      if (k === 'ArrowDown' || k === 'j') { cur = Math.min(rows.length - 1, cur + 1); paint(); return true; }
+      if (k === 'ArrowUp' || k === 'k') { cur = Math.max(0, cur - 1); paint(); return true; }
+      if (k === 'g') { cur = 0; paint(); return true; }
+      if (k === 'G') { cur = rows.length - 1; paint(); return true; }
+      if (k === 'Enter') { pick(cur); return false; }
+      if (k === 'q') { close(); return false; }
+      return true;   // keep the chooser open for any other key (tmux choose-mode stays until Enter/Esc/q)
+    });
   }
   function showPaneNumbers() {
     var badges = [];
@@ -1294,17 +1306,29 @@
     try {
       chrome.storage.local.get(SESSIONS_KEY, function (o) {
         void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || [];
-        modal(function (card) {
-          card.innerHTML = '<h4>sessions</h4>';
+        var cur = 0, rows = [], ref;
+        function paint() { rows.forEach(function (r, i) { r.className = 'zt-wrow' + (i === cur ? ' sel' : ''); }); var s = rows[cur]; if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' }); }
+        function pick(i) { if (arr[i]) applySession(arr[i]); if (ref) ref.close(); }
+        ref = modal(function (card) {
+          card.innerHTML = '<h4>sessions — ↑/↓ or j/k, Enter to attach, Esc to close</h4>';
           if (!arr.length) { card.appendChild(document.createTextNode('no saved sessions — :save-session to make one')); return; }
           arr.forEach(function (s, i) {
             var np = (s.windows || []).reduce(function (a, w) { return a + ((w.panes || []).length || 0); }, 0);
-            var row = document.createElement('div'); row.className = 'zt-wrow';
+            var row = document.createElement('div'); row.className = 'zt-wrow' + (i === cur ? ' sel' : '');
             row.textContent = i + ': ' + (s.name || '(unnamed)') + '  (' + (s.windows || []).length + ' win · ' + np + ' panes)' + (s.hotkey ? ('   C-b ' + s.hotkey) : '');
-            row.addEventListener('click', function () { applySession(s); var m = card.parentNode; if (m) m.remove(); });
-            card.appendChild(row);
+            row.addEventListener('click', function () { pick(i); });
+            rows.push(row); card.appendChild(row);
           });
-        }, function (k, cl) { if (/^[0-9]$/.test(k)) { var n = parseInt(k, 10); if (arr[n]) applySession(arr[n]); cl(); return false; } });
+        }, function (k, cl) {
+          if (/^[0-9]$/.test(k)) { pick(parseInt(k, 10)); return false; }
+          if (k === 'ArrowDown' || k === 'j') { cur = Math.min(rows.length - 1, cur + 1); paint(); return true; }
+          if (k === 'ArrowUp' || k === 'k') { cur = Math.max(0, cur - 1); paint(); return true; }
+          if (k === 'g') { cur = 0; paint(); return true; }
+          if (k === 'G') { cur = rows.length - 1; paint(); return true; }
+          if (k === 'Enter') { pick(cur); return false; }
+          if (k === 'q') { cl(); return false; }
+          return true;
+        });
       });
     } catch (e) {}
   }
