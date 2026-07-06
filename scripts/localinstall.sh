@@ -78,10 +78,12 @@ cyber_status "COPY" "browser bundle (~$(du -sh "$BASE_APP" | awk '{print $1}')) 
 cp -R "$BASE_APP" "$RES/browser/"
 cyber_ok "browser -> Resources/browser/$APP_DIRNAME"
 
-# 2) the extensions (skip node_modules/.git/tests to stay lean)
+# 2) the extensions (skip node_modules/.git/tests to stay lean; skip _metadata —
+#    it's a dev-profile-specific compiled index Chromium regenerates per-user at
+#    launch, so bundling it is dead weight that never gets loaded).
 for ext in newtab extensions/zpwrchrome extensions/hud-internal; do
   name="$(basename "$ext")"
-  rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'tests' --exclude 'target' "$ROOT/$ext/" "$RES/ext/$name/"
+  rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'tests' --exclude 'target' --exclude '_metadata' "$ROOT/$ext/" "$RES/ext/$name/"
   cyber_ok "ext // $name"
 done
 
