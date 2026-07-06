@@ -41,6 +41,11 @@ try {
       try { chrome.runtime.sendNativeMessage(HOST, { scheme: msg.scheme }, function () { void chrome.runtime.lastError; }); } catch (e) {}
       try { chrome.storage.local.set({ zb_scheme: msg.scheme }); } catch (e) {}
     }
+    // Light/effects state for zpwrchrome (its storage is isolated from ours).
+    if (msg.type === 'zb-ui-get') {
+      try { chrome.storage.local.get('zb_ui', function (o) { void chrome.runtime.lastError; sendResponse({ ui: (o && o.zb_ui) || {} }); }); } catch (e) { sendResponse({ ui: {} }); }
+      return true; // async
+    }
   });
 } catch (e) {}
 
@@ -231,6 +236,8 @@ try {
   chrome.storage.onChanged.addListener(function (ch, area) {
     if (area === 'local' && ch.zb_ui && ch.zb_ui.newValue) {
       try { chrome.runtime.sendNativeMessage(HOST, { ui: ch.zb_ui.newValue }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      // Push to zpwrchrome (isolated storage) so its pages follow light mode too.
+      try { chrome.runtime.sendMessage(ZPWR_ID, { type: 'zb-ui', ui: ch.zb_ui.newValue }, function () { void chrome.runtime.lastError; }); } catch (e) {}
     }
   });
 } catch (e) {}
