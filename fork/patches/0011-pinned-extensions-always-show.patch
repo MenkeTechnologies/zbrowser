@@ -1,0 +1,23 @@
+diff --git a/chrome/browser/ui/views/toolbar/toolbar_view.cc b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+index 9be3cb3da2..282309ccb6 100644
+--- a/chrome/browser/ui/views/toolbar/toolbar_view.cc
++++ b/chrome/browser/ui/views/toolbar/toolbar_view.cc
+@@ -1547,10 +1547,15 @@ void ToolbarView::InitLayout() {
+   }
+ 
+   if (extensions_container_) {
++    // zbrowser: pinned extensions must ALWAYS stay in the toolbar strip — never
++    // drop to the puzzle overflow when the toolbar is tight. Hold the container
++    // at its preferred width so every pinned action shows, and let the omnibox
++    // (kScaleToMinimum) yield instead of squeezing the container out. Stock gives
++    // the container a droppable rule at the lowest flex priority, which makes a
++    // runtime re-pin overflow even though a fresh start fits the same set.
+     const views::FlexSpecification extensions_flex_rule =
+-        views::FlexSpecification(
+-            extensions_container_->GetAnimatingLayoutManager()
+-                ->GetDefaultFlexRule())
++        views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
++                                 views::MaximumFlexSizeRule::kPreferred)
+             .WithOrder(kExtensionsFlexOrder);
+ 
+     extensions_container_->SetProperty(views::kFlexBehaviorKey,

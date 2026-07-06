@@ -16,3 +16,5 @@
 #   the prefix + the next key before the page saw them (the "C-b %%" double-tap).
 0008-allow-framing.patch          # ancestor_throttle.cc -> allow framing any site (tmux iframes)
 0009-ext-command-focus-webcontents.patch  # extension_keybinding_registry_views.cc -> when an extension command fires while chrome UI (the omnibox/search bar) has focus, hand focus to the page web contents so the ⌘K palette overlay is typeable (VERIFIED @150.0.7871.46)
+0010-newtab-force-zwire.patch       # search.cc -> chrome://newtab always resolves to the zwire newtab extension (never the default Google NTP) when it's loaded (VERIFIED @150.0.7871.46)
+0011-pinned-extensions-always-show.patch  # toolbar_view.cc -> hold the extensions container at preferred width so pinned actions never drop to the puzzle overflow on runtime re-pin (VERIFIED @150.0.7871.46)

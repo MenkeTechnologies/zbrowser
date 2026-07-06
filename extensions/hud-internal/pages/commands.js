@@ -148,6 +148,13 @@
       }
       if (dup) { toast('Keyword "' + entry.keyword + '" is already used by "' + dup.label + '"'); return; }
     }
+    // No two commands may share a label either — duplicates make the ⌘K list
+    // ambiguous (two identical rows). Reject and point at the existing owner.
+    var dupLabel = null;
+    for (var L = 0; L < cmds.length; L++) {
+      if (cmds[L].id !== entry.id && (cmds[L].label || '').trim().toLowerCase() === entry.label.toLowerCase()) { dupLabel = cmds[L]; break; }
+    }
+    if (dupLabel) { toast('A command labelled "' + entry.label + '" already exists'); return; }
     if (wasEdit) { for (var i = 0; i < cmds.length; i++) { if (cmds[i].id === editingId) { cmds[i] = entry; break; } } }
     else cmds.push(entry);
     persist(); resetForm(); drawTable(); toast(wasEdit ? 'Updated' : 'Added');

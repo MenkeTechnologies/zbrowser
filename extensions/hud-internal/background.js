@@ -97,13 +97,24 @@ function zbClearTermOpen() { try { chrome.storage.local.set({ zb_term_open: fals
 try { chrome.runtime.onStartup.addListener(zbClearTermOpen); } catch (e) {}
 try { chrome.runtime.onInstalled.addListener(zbClearTermOpen); } catch (e) {}
 
-// First run: open the HUD App Store page once and let it pop the welcome modal,
-// so the MenkeTechnologies app store is shown up front. reason 'install' only —
-// never on update or browser restart — so it fires just the first time.
+// First run: open the HUD App Store page and pop the welcome modal, so the
+// MenkeTechnologies app store is shown up front. Unpacked extensions loaded via
+// --load-extension fire onInstalled with reason 'install' on EVERY launch, so
+// reason alone can't distinguish first-run — gate the welcome modal on a
+// persistent flag (zb_welcomed) so it pops only the very first time. Later
+// launches still open the App Store tab, just without the welcome popup.
 try {
   chrome.runtime.onInstalled.addListener(function (d) {
     if (!d || d.reason !== 'install') return;
-    try { chrome.tabs.create({ url: chrome.runtime.getURL('pages/store.html') + '?welcome=1' }); } catch (e) {}
+    try {
+      chrome.storage.local.get('zb_welcomed', function (o) {
+        void chrome.runtime.lastError;
+        var welcomed = !!(o && o.zb_welcomed);
+        var url = chrome.runtime.getURL('pages/store.html') + (welcomed ? '' : '?welcome=1');
+        try { chrome.tabs.create({ url: url }); } catch (e) {}
+        if (!welcomed) { try { chrome.storage.local.set({ zb_welcomed: 1 }); } catch (e) {} }
+      });
+    } catch (e) { try { chrome.tabs.create({ url: chrome.runtime.getURL('pages/store.html') }); } catch (e2) {} }
   });
 } catch (e) {}
 

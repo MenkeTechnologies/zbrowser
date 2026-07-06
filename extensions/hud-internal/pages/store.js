@@ -98,7 +98,19 @@
     render();
     var welcome = false;
     try { welcome = new URLSearchParams(location.search).get('welcome') === '1'; } catch (e) {}
-    if (welcome) setTimeout(welcomeModal, 120);
+    // Show the welcome modal only the very FIRST time ever. Gate on a persistent
+    // flag (not just the ?welcome param), so a session-restored ?welcome tab or a
+    // stale background worker that re-adds ?welcome can't pop it every launch.
+    if (welcome) {
+      try {
+        chrome.storage.local.get('zb_welcomed', function (o) {
+          void chrome.runtime.lastError;
+          if (o && o.zb_welcomed) return;
+          try { chrome.storage.local.set({ zb_welcomed: 1 }); } catch (e) {}
+          setTimeout(welcomeModal, 120);
+        });
+      } catch (e) { setTimeout(welcomeModal, 120); }
+    }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
