@@ -31,17 +31,14 @@ workspace layered on top:
   never touches your system Chrome.
 
 The HUD layer (`extensions/hud-internal`) is ~5,400 lines of extension code
-across 11 subsystems and 13 pages. On top of it, an optional **9-patch C++
-fork** restyles the *native* chrome the extension layer can't reach.
+across 11 subsystems and 13 pages. Under it, a **9-patch C++ fork** restyles the
+*native* chrome the extension layer can't reach.
 
-**Two build paths, same HUD workspace:**
-
-- **Minimal (default, no compile)** — the HUD new-tab, the tiling/palette/vim
-  workspace, the 8-scheme picker, and your extensions on a prebuilt Chromium
-  snapshot. Native tab shapes stay stock.
-- **Full fork (`fork/`, compiles Chromium)** — the 9-patch series restyles the
-  native chrome too: tab shapes, UI font, neon toolbar, omnibox, and the 8 HUD
-  schemes wired into the color mixer + DevTools. See [`fork/README.md`](fork/README.md).
+**zwire is the full fork.** The 9-patch series (`fork/`) compiles a patched
+Chromium so the *native* chrome carries the HUD too — sharp tab shapes, the
+Share Tech Mono UI font, the neon toolbar, the omnibox, and the 8 HUD schemes
+wired into the color mixer + DevTools — the styling an extension can't reach.
+See [`fork/README.md`](fork/README.md).
 
 ## `[0x00] WHY A REAL BLINK BASE`
 
@@ -52,12 +49,11 @@ WebKit (Tauri/Safari) or Servo — **only a real Chromium engine loads it.** The
 tiling overlay also iframes arbitrary sites into its panes, which needs the
 fork's frame-ancestors bypass (patch 0008) — impossible in a wrapper.
 
-The base is a **plain [Chromium snapshot](https://commondatastorage.googleapis.com/chromium-browser-snapshots/index.html)**
-— unbranded Chromium, **no Google logo, no "for automated testing" banner**
-(that stripe is exclusive to Chrome for Testing). Unbranded Chromium also retains
-the `--load-extension` switch that preloads `zpwrchrome` — [removed from *branded*
-Chrome in version 137][psa]. Stock Google Chrome can no longer be scripted this
-way; Chromium can.
+The fork compiles unbranded (`is_chrome_branded=false`), so it carries **no
+Google logo and no "for automated testing" banner** (that stripe is exclusive to
+Chrome for Testing), and it retains the `--load-extension` switch that preloads
+`zpwrchrome` — [removed from *branded* Chrome in version 137][psa]. Stock Google
+Chrome can no longer be scripted this way; a Chromium build can.
 
 [psa]: https://groups.google.com/a/chromium.org/g/chromium-extensions/c/1-g8EFx2BBY/m/S0ET5wPjCAAJ
 
@@ -105,18 +101,18 @@ up front — the new-tab page stays untouched.
 
 | Layer | What it is |
 |---|---|
-| **Base** | Plain Chromium snapshot (pinned rev), downloaded by `scripts/fetch-base.sh` — or the compiled `fork/` build |
+| **Base** | The compiled `fork/` build — a patched Chromium (pinned tag `150.0.7871.46`), unbranded release |
 | **HUD workspace** | `extensions/hud-internal` — the tiling overlay (`ztmux`), ⌘K palette (`zpalette`), vim nav + keymap (`zkeys`/`zvim`), find (`zfind`), status bar (`zstatus`), the 8-scheme picker, and 13 HUD pages (incl. the Sessions manager, Keyboard remapper + App Store). MV3 content scripts on `chrome://*/*` + `http(s)`; bridges to a native host. Needs `--extensions-on-chrome-urls` |
 | **New tab** | `newtab/` — a `chrome_url_overrides.newtab` extension: the full HUD new-tab (Orbitron, CRT scanlines, neon omnibox), fonts vendored locally |
 | **Power-tool** | `extensions/zpwrchrome` — the MV3 power-tool, loaded as a submodule (reuse, not copy) |
 | **Theme** | `theme/` — a colors-only Chrome theme. Present but **not** launcher-loaded — the fork's native color mixer (patch 0002) and the HUD skin own the palette, and a static theme applies last and would override them |
 | **Launcher** | `bin/zwire` — starts the base against `$ZWIRE_STATE/profile` with `newtab` + `zpwrchrome` + `hud-internal` loaded and `--extensions-on-chrome-urls` set (any dir missing a `manifest.json` is skipped, so a missing submodule degrades gracefully) |
-| **Fork** | `fork/` — optional 9-patch source build that restyles the native chrome (tab shapes, fonts, borders, omnibox, DevTools schemes) the extension layer can't reach |
+| **Fork** | `fork/` — the 9-patch source build that restyles the native chrome (tab shapes, fonts, borders, omnibox, DevTools schemes) the extension layer can't reach; this is what zwire ships as |
 
 A Chrome theme extension changes **colors only** — it cannot reshape tabs, fonts,
 or toolbar (those are native C++), and it cannot add a tiling overlay or a
-command palette. The HUD extension layer adds the workspace; the `fork/` path
-adds the native styling.
+command palette. The HUD extension layer adds the workspace; the `fork/` build
+adds the native styling — together they are zwire.
 
 ## `[0x03] INSTALL`
 
@@ -160,8 +156,8 @@ Override the base with `ZWIRE_BASE=/path/to/chromium zwire`.
 ## `[0x05] FULL-HUD FORK`
 
 The extension layer can't restyle the native chrome (tab shapes, fonts, toolbar
-are C++). To put the whole browser in the HUD, `fork/` compiles a patched
-Chromium (~100 GB checkout, 1–4 hr first build, ongoing rebase maintenance):
+are C++), so zwire ships as the fork: `fork/` compiles a patched Chromium
+(~100 GB checkout, 1–4 hr first build, ongoing rebase maintenance):
 
 ```sh
 fork/fetch.sh                                   # depot_tools + pinned Chromium

@@ -1,16 +1,16 @@
 # zwire fork — the full-HUD Chromium build
 
-The runtime rebrand (top-level `bin/zwire` + a Chromium snapshot base) gives
-you HUD **colors** + a HUD **new-tab** + your extensions, with zero build. It
-cannot reshape the browser chrome — tab shape, UI fonts, toolbar borders are
-native C++, not themeable.
+The HUD extension layer (`extensions/hud-internal` + the HUD new-tab) gives you
+the tiling workspace, the ⌘K palette, the scheme picker, and your extensions —
+but it **cannot** reshape the browser chrome: tab shape, UI fonts, toolbar
+borders are native C++, not themeable.
 
-This `fork/` directory is the **source-build path** that restyles the chrome
-itself: sharp cyberpunk tabs, Share Tech Mono / Monaco UI type, neon toolbar,
-HUD-colored frame, and the 8 HUD schemes wired into the DevTools Theme dropdown.
-It compiles a patched Chromium and installs it as the
-zwire base, which the same `bin/zwire` launcher then runs with the
-extensions preloaded.
+This `fork/` directory is the **source build** — the way zwire ships. It
+restyles the chrome itself: sharp cyberpunk tabs, Share Tech Mono / Monaco UI
+type, neon toolbar, HUD-colored frame, and the 8 HUD schemes wired into the
+DevTools Theme dropdown. It compiles a patched Chromium and installs it as the
+zwire base, which the `bin/zwire` launcher then runs with the extensions
+preloaded.
 
 ## Cost (be sure you want this)
 
