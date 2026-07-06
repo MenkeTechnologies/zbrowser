@@ -161,7 +161,12 @@
   function setTmux(st) {
     var el = bar.querySelector('[data-tmux]'); if (!el) return;
     if (!st || !st.windows || !st.windows.length) { el.innerHTML = ''; return; }
-    var html = st.windows.map(function (w, i) { return '<span class="win' + (i === st.active ? ' act' : '') + '">' + i + '·' + w.panes + (w.zoom ? 'Z' : '') + '</span>'; }).join('');
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    var html = '';
+    if (st.sess) html += '<span class="tsess" style="color:var(--magenta,#ff2e97);font-weight:700;margin-right:8px;" title="tmux session">⬢ ' + esc(st.sess) + '</span>';
+    var aw = st.windows[st.active];   // active window's name, tmux-style, after the session
+    if (aw && aw.name) html += '<span class="twin-name" style="color:var(--cyan,#05d9e8);margin-right:8px;" title="active window">' + esc(aw.name) + '</span>';
+    html += st.windows.map(function (w, i) { return '<span class="win' + (i === st.active ? ' act' : '') + '">' + i + '·' + w.panes + (w.zoom ? 'Z' : '') + '</span>'; }).join('');
     if (st.anySync) html += '<span class="sync" title="synchronize-panes on">⇄</span>';
     el.innerHTML = html;
   }

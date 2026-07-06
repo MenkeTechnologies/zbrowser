@@ -60,27 +60,95 @@
     // apply keystrokes here even while this pane isn't the focused one.
     document.addEventListener('focusin', function (e) { if (editable(e.target)) lastField = e.target; }, true);
     function up(o) { try { parent.postMessage(Object.assign({ __zbtmux: 1 }, o), '*'); } catch (e) {} }
-    // copy mode + capture any copy into the overlay's paste-buffer stack.
-    var copyMode = false, copyInd = null;
-    function copyEnter() { if (copyMode) return; copyMode = true; copyInd = document.createElement('div'); copyInd.textContent = '▨ COPY — j/k/d/u/g/G scroll · select · y/Enter yank · Esc'; copyInd.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#ff2a6d;color:#fff;padding:3px 10px;font:12px "Share Tech Mono",monospace;border-radius:3px;pointer-events:none;'; (document.body || document.documentElement).appendChild(copyInd); }
-    function copyExit() { copyMode = false; if (copyInd) { try { copyInd.remove(); } catch (e) {} copyInd = null; } }
-    function yankSel() { var s = (window.getSelection && String(window.getSelection())) || ''; if (s) up({ yank: s }); }
-    document.addEventListener('copy', function () { yankSel(); }, true);
-    document.addEventListener('keydown', function (e) {
-      if (copyMode) {
-        e.preventDefault(); e.stopImmediatePropagation(); var ck = e.key;
-        if (ck === 'Escape') copyExit();
-        else if (ck === 'y' || ck === 'Enter') { yankSel(); copyExit(); }
-        else if (ck === 'j' || ck === 'ArrowDown') window.scrollBy(0, 64);
-        else if (ck === 'k' || ck === 'ArrowUp') window.scrollBy(0, -64);
-        else if (ck === 'd') window.scrollBy(0, window.innerHeight / 2);
-        else if (ck === 'u') window.scrollBy(0, -window.innerHeight / 2);
-        else if (ck === 'g') window.scrollTo(0, 0);
-        else if (ck === 'G') window.scrollTo(0, document.body.scrollHeight);
-        else if (ck === ' ' || ck === 'PageDown') window.scrollBy(0, window.innerHeight * 0.9);
-        else if (ck === 'b' || ck === 'PageUp') window.scrollBy(0, -window.innerHeight * 0.9);
+    // ---- copy mode: a real text cursor over the page (Selection API) + search.
+    // tmux copy-mode ported onto web content: hjkl/w/b/0/$/g/G/H/M/L motion via
+    // Selection.modify, Space/v/V visual selection, / ? n N search via window.find,
+    // y/Enter copy → overlay paste-buffer. A synthetic caret makes it visible.
+    var copyMode = false, copyInd = null, copyCur = null, selecting = false, searchOpen = false, lastSearch = '', lastBack = false;
+    var sel = window.getSelection ? window.getSelection() : null;
+    function rangeFromPoint(x, y) {
+      if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+      if (document.caretPositionFromPoint) { var p = document.caretPositionFromPoint(x, y); if (p) { var r = document.createRange(); r.setStart(p.offsetNode, p.offset); r.collapse(true); return r; } }
+      return null;
+    }
+    function copyEnter() {
+      if (copyMode || !sel) return; copyMode = true; selecting = false;
+      if (!sel.rangeCount || sel.isCollapsed) {                 // drop a caret near the top of the viewport
+        var r = null, ys = [16, 48, 96, 160, 240];
+        for (var i = 0; i < ys.length && !r; i++) r = rangeFromPoint(14, ys[i]);
+        if (!r) { r = document.createRange(); r.selectNodeContents(document.body || document.documentElement); r.collapse(true); }
+        sel.removeAllRanges(); sel.addRange(r);
+      }
+      if (!document.getElementById('zbcur-kf')) { var st = document.createElement('style'); st.id = 'zbcur-kf'; st.textContent = '@keyframes zbcurbl{50%{opacity:.15}}'; (document.head || document.documentElement).appendChild(st); }
+      copyInd = document.createElement('div');
+      copyInd.textContent = '▨ COPY · hjkl move · w/b word · 0/$ line · g/G top/bot · H/M/L · Space/v select · V line · y copy · / ? n N search · Esc';
+      copyInd.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#ff2a6d;color:#fff;padding:3px 10px;font:12px "Share Tech Mono",monospace;border-radius:3px;pointer-events:none;white-space:nowrap;max-width:96vw;overflow:hidden;text-overflow:ellipsis;';
+      (document.body || document.documentElement).appendChild(copyInd); showCursor();
+    }
+    function copyExit() { copyMode = false; selecting = false; searchOpen = false; if (copyInd) { try { copyInd.remove(); } catch (e) {} copyInd = null; } if (copyCur) { try { copyCur.remove(); } catch (e) {} copyCur = null; } if (sel) try { sel.collapseToEnd(); } catch (e) {} }
+    function showCursor() {
+      if (!copyMode || !sel || !sel.rangeCount) return;
+      var r = sel.getRangeAt(0).cloneRange(), rects = r.getClientRects(), rect = rects.length ? rects[rects.length - 1] : r.getBoundingClientRect();
+      if (!copyCur) { copyCur = document.createElement('div'); copyCur.style.cssText = 'position:fixed;width:2px;background:#05d9e8;box-shadow:0 0 6px #05d9e8;z-index:2147483646;pointer-events:none;animation:zbcurbl 1s steps(1) infinite;'; (document.body || document.documentElement).appendChild(copyCur); }
+      if (rect) { copyCur.style.left = (rect.right || rect.left || 0) + 'px'; copyCur.style.top = (rect.top || 0) + 'px'; copyCur.style.height = (rect.height || 16) + 'px'; }
+    }
+    function ensureVisible() { try { var r = sel.getRangeAt(0), rc = r.getBoundingClientRect(); if (rc && (rc.top < 40 || rc.bottom > window.innerHeight - 20)) { var el = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentNode; if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' }); } } catch (e) {} }
+    function mo(dir, gran) { try { sel.modify(selecting ? 'extend' : 'move', dir, gran); } catch (e) {} ensureVisible(); showCursor(); }
+    function toPoint(y) { var r = rangeFromPoint(14, y); if (!r) return; if (selecting) { try { sel.extend(r.startContainer, r.startOffset); } catch (e) {} } else { sel.removeAllRanges(); sel.addRange(r); } showCursor(); }
+    function yankSel(append) { var s = (sel && String(sel)) || ''; if (s) up({ yank: s, append: !!append }); }
+    function doSearch(text, back) { if (!text) return; lastSearch = text; lastBack = back; try { window.find(text, false, back, true); } catch (e) {} selecting = false; showCursor(); }
+    function searchPrompt(back) {
+      searchOpen = true;
+      var box = document.createElement('div'); box.style.cssText = 'position:fixed;bottom:6px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#0a0d16;border:1px solid #05d9e8;color:#c8d2e0;padding:4px 8px;font:13px "Share Tech Mono",monospace;border-radius:3px;';
+      box.textContent = back ? '?' : '/'; var si = document.createElement('input'); si.style.cssText = 'background:transparent;border:none;outline:none;color:inherit;font:inherit;width:220px;'; box.appendChild(si); (document.body || document.documentElement).appendChild(box);
+      function done() { searchOpen = false; try { box.remove(); } catch (e) {} }
+      si.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Enter') { done(); doSearch(si.value, back); } else if (e.key === 'Escape') done(); });
+      setTimeout(function () { try { si.focus(); } catch (e) {} }, 0);
+    }
+    function copyKey(e) {
+      var k = e.key; e.preventDefault(); e.stopImmediatePropagation();
+      if (e.ctrlKey) {
+        if (k === 'd') { window.scrollBy(0, window.innerHeight / 2); mo('forward', 'line'); }
+        else if (k === 'u') { window.scrollBy(0, -window.innerHeight / 2); mo('backward', 'line'); }
+        else if (k === 'f') window.scrollBy(0, window.innerHeight * 0.9);
+        else if (k === 'b') window.scrollBy(0, -window.innerHeight * 0.9);
+        else if (k === 'e') window.scrollBy(0, 48);
+        else if (k === 'y') window.scrollBy(0, -48);
         return;
       }
+      switch (k) {
+        case 'Escape': if (!sel.isCollapsed) { sel.collapseToStart(); selecting = false; showCursor(); } else copyExit(); return;
+        case 'q': copyExit(); return;
+        case 'y': case 'Enter': yankSel(false); copyExit(); return;
+        case 'A': yankSel(true); copyExit(); return;
+        case 'h': case 'ArrowLeft': mo('backward', 'character'); return;
+        case 'l': case 'ArrowRight': mo('forward', 'character'); return;
+        case 'j': case 'ArrowDown': mo('forward', 'line'); return;
+        case 'k': case 'ArrowUp': mo('backward', 'line'); return;
+        case 'w': case 'W': case 'e': case 'E': mo('forward', 'word'); return;
+        case 'b': case 'B': mo('backward', 'word'); return;
+        case '0': case '^': mo('backward', 'lineboundary'); return;
+        case '$': mo('forward', 'lineboundary'); return;
+        case 'g': mo('backward', 'documentboundary'); window.scrollTo(0, 0); return;
+        case 'G': mo('forward', 'documentboundary'); window.scrollTo(0, (document.body || document.documentElement).scrollHeight); return;
+        case '{': mo('backward', 'paragraphboundary'); return;
+        case '}': mo('forward', 'paragraphboundary'); return;
+        case 'H': toPoint(24); return;
+        case 'M': toPoint(window.innerHeight / 2); return;
+        case 'L': toPoint(window.innerHeight - 28); return;
+        case ' ': case 'v': selecting = !selecting; if (!selecting) sel.collapseToStart(); showCursor(); return;
+        case 'V': selecting = false; mo('backward', 'lineboundary'); selecting = true; mo('forward', 'lineboundary'); return;
+        case 'PageDown': window.scrollBy(0, window.innerHeight * 0.9); return;
+        case 'PageUp': window.scrollBy(0, -window.innerHeight * 0.9); return;
+        case '/': searchPrompt(false); return;
+        case '?': searchPrompt(true); return;
+        case 'n': doSearch(lastSearch, lastBack); return;
+        case 'N': doSearch(lastSearch, !lastBack); return;
+      }
+    }
+    document.addEventListener('copy', function () { yankSel(false); }, true);
+    document.addEventListener('keydown', function (e) {
+      if (copyMode) { if (!searchOpen) copyKey(e); return; }   // search box handles its own keys
       if (pArmed) {
         if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
         pArmed = false; clearTimeout(pTimer);
@@ -168,6 +236,11 @@
   // (zb_keys) — the SAME source the Keyboard settings page edits. So every
   // post-prefix key is customizable there.
   var keyToAction = {};
+  // User-bound layout shortcuts: a saved tmux session can carry a `hotkey` (a
+  // single post-prefix key) so C-b <hotkey> loads that exact layout directly,
+  // without opening the Sessions page. Map: key char -> session id. Kept in sync
+  // with chrome.storage 'zb_tmux_sessions' below.
+  var sessHotkeys = {};
   function buildKeys(ov) {
     keyToAction = {};
     var reg = window.ZWIRE_KEYMAP, cat = reg && (reg.categories || []).filter(function (c) { return c.id === 'tmux'; })[0];
@@ -298,16 +371,20 @@
     w.tree = buildTiled(ls); w.layout = 'tiled'; w.zoom = null;
     setActivePane(ls[0].id);
   }
-  function cycleLayout() {
+  var LAYOUT_ORDER = ['even-h', 'even-v', 'main-v', 'main-h', 'tiled'];
+  function setLayout(name) {
     var w = W(), ls = leaves(w.tree); if (ls.length < 2) return;
-    var order = ['even-h', 'even-v', 'main-v', 'main-h', 'tiled'];
-    w.layout = order[(order.indexOf(w.layout) + 1) % order.length];
-    if (w.layout === 'even-h') w.tree = buildEven(ls, 'row');
-    else if (w.layout === 'even-v') w.tree = buildEven(ls, 'col');
-    else if (w.layout === 'main-v') w.tree = { t: 'split', dir: 'row', ratio: 0.6, a: ls[0], b: buildEven(ls.slice(1), 'col') };
-    else if (w.layout === 'main-h') w.tree = { t: 'split', dir: 'col', ratio: 0.6, a: ls[0], b: buildEven(ls.slice(1), 'row') };
-    else { var cols = Math.ceil(Math.sqrt(ls.length)), rows = []; for (var i = 0; i < ls.length; i += cols) rows.push(buildEven(ls.slice(i, i + cols), 'row')); w.tree = rows.length === 1 ? rows[0] : buildEven(rows, 'col'); }
+    w.layout = name;
+    if (name === 'even-h') w.tree = buildEven(ls, 'row');
+    else if (name === 'even-v') w.tree = buildEven(ls, 'col');
+    else if (name === 'main-v') w.tree = { t: 'split', dir: 'row', ratio: 0.6, a: ls[0], b: buildEven(ls.slice(1), 'col') };
+    else if (name === 'main-h') w.tree = { t: 'split', dir: 'col', ratio: 0.6, a: ls[0], b: buildEven(ls.slice(1), 'row') };
+    else { w.layout = 'tiled'; var cols = Math.ceil(Math.sqrt(ls.length)), rows = []; for (var i = 0; i < ls.length; i += cols) rows.push(buildEven(ls.slice(i, i + cols), 'row')); w.tree = rows.length === 1 ? rows[0] : buildEven(rows, 'col'); }
     w.zoom = null;
+  }
+  function cycleLayout() {
+    var w = W(); if (leaves(w.tree).length < 2) return;
+    setLayout(LAYOUT_ORDER[(LAYOUT_ORDER.indexOf(w.layout) + 1) % LAYOUT_ORDER.length]);
   }
   function reloadPane() { var p = panes[W().active]; if (p) try { p.frame.src = p.frame.src; } catch (e) {} }
   function markPane() {
@@ -325,12 +402,12 @@
 
   /* ---- copy mode + paste buffers (panes are scrollable, selectable docs) ---- */
   var buffers = [];
-  function pushBuffer(t) { if (!t) return; buffers = buffers.filter(function (b) { return b !== t; }); buffers.unshift(t); if (buffers.length > 30) buffers.pop(); persist(); }
+  function pushBuffer(t, append) { if (!t) return; if (append && buffers.length) { buffers[0] = buffers[0] + '\n' + t; } else { buffers = buffers.filter(function (b) { return b !== t; }); buffers.unshift(t); } if (buffers.length > 30) buffers.pop(); persist(); }
   function toPane(msg) { var l = activeLeaf(), p = l && panes[l.id]; if (p) try { p.frame.contentWindow.postMessage(Object.assign({ __zbtmux: 1 }, msg), '*'); } catch (e) {} }
   function enterCopyMode() { toPane({ copyMode: true }); }
   function pasteBuffer(text) { if (text == null) text = buffers[0]; if (text == null) return; toPane({ pasteText: text }); }
   function showBuffers() {
-    if (!buffers.length) return;
+    if (!buffers.length) { flashMsg('no paste buffers yet — copy-mode (C-b [) to yank text first'); return; }
     modal(function (card) {
       card.innerHTML = '<h4>paste buffers</h4>';
       buffers.forEach(function (b, i) { var row = document.createElement('div'); row.className = 'zt-wrow'; row.textContent = i + ': ' + b.replace(/\s+/g, ' ').slice(0, 90); row.addEventListener('click', function () { pasteBuffer(b); var m = card.parentNode; if (m) m.remove(); focusActive(); }); card.appendChild(row); });
@@ -369,6 +446,11 @@
       if (mods.ctrl || mods.alt) resizePane(dir, mods.alt ? 0.08 : 0.03); else navDir(dir);
       render(); focusActive(); return;
     }
+    // User-defined layout shortcut: C-b <key> loads a saved session's layout.
+    // An explicit binding WINS over the built-in action on that key — so binding
+    // a layout to e.g. `t` overrides the stock clock, which is what the user
+    // asked for when they picked that key on the Sessions page.
+    if (sessHotkeys[k]) { loadSessionById(sessHotkeys[k]); return; }
     switch (keyToAction[k]) {                    // customizable on the Keyboard page
       case 'tmux-split-h': splitPane('row'); break;
       case 'tmux-split-v': splitPane('col'); break;
@@ -403,6 +485,9 @@
       case 'tmux-mark': markPane(); break;
       case 'tmux-win-list': showChooser(); return;
       case 'tmux-win-kill': killWindow(); break;
+      case 'tmux-find': promptModal('find-window (text)', '', function (v) { v = (v || '').trim(); if (v) { var er = runTmuxCmd('find-window ' + v); if (er) flashMsg(er); } }); return;
+      case 'tmux-info': flashMsg('window ' + S.active + ': ' + (W().name || label(W())) + ' · ' + leaves(W().tree).length + ' pane(s)'); return;
+      case 'tmux-sess-rename': runTmuxCmd('rename-session'); return;
       case 'tmux-sync': toggleSync(); break;
       case 'tmux-sync-pane': toggleSyncPane(); break;
       case 'tmux-copy-mode': enterCopyMode(); return;
@@ -410,7 +495,7 @@
       case 'tmux-buffers': showBuffers(); return;
       case 'tmux-reload': reloadPane(); break;
       case 'tmux-clock': showClock(); return;
-      case 'tmux-palette': try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} return;
+      case 'tmux-command': commandPrompt(); return;
       case 'tmux-detach': open = wasClosed; break;   // toggle: C-b d detaches when attached, re-attaches when detached
       case 'tmux-sessions': openSessionsPage(); return;
       case 'tmux-session-save': saveCurrentSession(); return;
@@ -475,6 +560,29 @@
     ' padding:16px 20px;max-height:80%;overflow:auto;box-shadow:0 0 30px var(--cyan-glow,rgba(5,217,232,.4));font-size:13px;line-height:1.7;}',
     '#zbtmux .zt-modal h4{color:var(--cyan,#05d9e8);margin:0 0 10px;letter-spacing:1px;}',
     '#zbtmux .zt-modal .zt-clock{font-size:64px;letter-spacing:4px;color:var(--cyan,#05d9e8);text-shadow:0 0 18px var(--cyan-glow,rgba(5,217,232,.6));}',
+    // tmux command-prompt (C-b :) — a centered floating box a quarter up from the
+    // bottom, with a live typeahead list dropping down that you arrow/Tab into.
+    '#zbtmux .zt-cmdback{position:absolute;inset:0;z-index:70;}',
+    // Anchored by its TOP (input row) so the box grows/shrinks DOWNWARD as the
+    // list changes — the input never moves while you type. top:72% ≈ a quarter up.
+    '#zbtmux .zt-cmdwrap{position:absolute;left:50%;top:72%;transform:translateX(-50%);width:min(560px,82%);',
+    ' display:flex;flex-direction:column;background:var(--bg-card,#0a0d16);border:1px solid var(--cyan,#05d9e8);',
+    ' border-radius:6px;box-shadow:0 0 44px var(--cyan-glow,rgba(5,217,232,.4));overflow:hidden;}',
+    '#zbtmux .zt-cmdrow{display:flex;align-items:center;gap:8px;padding:10px 14px;}',
+    '#zbtmux .zt-cmdlbl{color:var(--cyan,#05d9e8);font-weight:700;font-size:16px;}',
+    '#zbtmux .zt-cmdin{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--text,#c8d2e0);font:inherit;font-size:15px;}',
+    '#zbtmux .zt-cmdin::placeholder{color:var(--text-muted,#5a6b82);}',
+    '#zbtmux .zt-cmdlist{max-height:min(240px,22vh);overflow-y:auto;border-top:1px solid var(--border,#1a2233);}',
+    '#zbtmux .zt-cmditem{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 14px;',
+    ' cursor:pointer;font-size:13px;color:var(--text,#c8d2e0);}',
+    '#zbtmux .zt-cmditem .zt-cmddesc{color:var(--text-muted,#5a6b82);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '#zbtmux .zt-cmditem:hover{background:rgba(5,217,232,.08);}',
+    '#zbtmux .zt-cmditem.sel{background:var(--cyan,#05d9e8);color:var(--bg-primary,#05060a);}',
+    '#zbtmux .zt-cmditem.sel .zt-cmddesc{color:var(--bg-primary,#05060a);opacity:.75;}',
+    '#zbtmux .zt-cmdmsg{padding:7px 14px;color:var(--magenta,#ff2e97);font-size:12px;border-top:1px solid var(--border,#1a2233);}',
+    '#zbtmux .zt-flash{position:absolute;left:50%;top:16%;transform:translateX(-50%);z-index:80;background:var(--bg-card,#0a0d16);',
+    ' border:1px solid var(--cyan,#05d9e8);border-radius:4px;padding:8px 14px;color:var(--text,#c8d2e0);font-size:13px;',
+    ' box-shadow:0 0 20px var(--cyan-glow,rgba(5,217,232,.4));pointer-events:none;}',
     '#zbtmux .zt-modal .zt-wrow{padding:5px 10px;cursor:pointer;border-radius:2px;}',
     '#zbtmux .zt-modal .zt-wrow:hover,#zbtmux .zt-modal .zt-wrow.sel{background:var(--cyan,#05d9e8);color:var(--bg-primary,#05060a);}',
     '#zbtmux .zt-pnum{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;',
@@ -704,7 +812,7 @@
       var st = open ? {
         armed: armed,
         windows: S.windows.map(function (win) { return { name: win.name || label(win), panes: leaves(win.tree).length, zoom: !!win.zoom, sync: syncActive(win), syncPanes: syncMembers(win).length }; }),
-        active: S.active, anySync: S.windows.some(syncActive)
+        active: S.active, anySync: S.windows.some(syncActive), sess: S.sessName || ''
       } : { armed: armed, windows: [] };
       chrome.storage.local.set({ zb_tmux: st });
     } catch (e) {}
@@ -716,6 +824,15 @@
   // a webview {url,title}; loading rebuilds the tiling tree from the flat pane
   // list (auto-tiled via buildEven), saving snapshots the current tree's leaves.
   var SESSIONS_KEY = 'zb_tmux_sessions';
+  // Rebuild the key->session map whenever the saved sessions change, so a hotkey
+  // assigned on the Sessions page takes effect live (C-b <key> loads it).
+  function loadSessHotkeys(arr) {
+    sessHotkeys = {};
+    // Case-sensitive on purpose: C-b P (Shift) is a distinct binding from C-b p.
+    (arr || []).forEach(function (s) { if (s && s.hotkey) sessHotkeys[String(s.hotkey)] = s.id; });
+  }
+  try { chrome.storage.local.get(SESSIONS_KEY, function (o) { void chrome.runtime.lastError; loadSessHotkeys(o && o[SESSIONS_KEY]); }); } catch (e) {}
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch[SESSIONS_KEY]) loadSessHotkeys(ch[SESSIONS_KEY].newValue); }); } catch (e) {}
   function sessionSnapshot() {
     return S.windows.map(function (win) {
       return { name: win.name || '', panes: leaves(win.tree).map(function (l) { return { url: l.url || '', title: l.title || '' }; }) };
@@ -729,24 +846,51 @@
     if (!sess || !sess.windows || !sess.windows.length) return;
     S.windows.forEach(function (win) { leaves(win.tree).forEach(function (l) { dropPane(l.id); }); });   // release old iframes
     S.windows = sess.windows.map(function (w) { return windowFromPanes(w.name, w.panes); });
-    S.active = 0; S.last = null; open = true; render(); focusActive(); publishTmux();
+    S.active = 0; S.last = null; open = true;
+    S.sessId = sess.id || null; S.sessName = sess.name || '';   // remember which saved session is live
+    render(); focusActive(); publishTmux();
   }
   function loadSessionById(id) {
     if (!id) return;
     try { chrome.storage.local.get(SESSIONS_KEY, function (o) { void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || []; for (var i = 0; i < arr.length; i++) if (arr[i].id === id) { applySession(arr[i]); return; } }); } catch (e) {}
   }
-  function saveCurrentSession() {
-    promptModal('Save current layout as session', '', function (name) {
-      name = (name || '').trim(); if (!name) return;
-      try {
-        chrome.storage.local.get(SESSIONS_KEY, function (o) {
-          void chrome.runtime.lastError;
-          var arr = (o && o[SESSIONS_KEY]) || [], now = Date.now();
-          arr.unshift({ id: 's' + now.toString(36) + '-' + Math.floor(Math.random() * 1e6).toString(36), name: name, created: now, updated: now, windows: sessionSnapshot() });
-          chrome.storage.local.set({ zb_tmux_sessions: arr }, function () { void chrome.runtime.lastError; });
-        });
-      } catch (e) {}
-    });
+  // Rename the current session. Always works: if the overlay is attached to a
+  // saved session (via applySession / saveCurrentSession) it renames that entry;
+  // otherwise it CREATES a saved session from the live layout under this name, so
+  // naming an as-yet-unsaved ("empty") session just makes it exist. Never errors.
+  function renameSession(name) {
+    name = (name || '').trim(); if (!name) return null;
+    S.sessName = name;
+    try {
+      chrome.storage.local.get(SESSIONS_KEY, function (o) {
+        void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || [], now = Date.now(), found = false;
+        if (S.sessId) for (var i = 0; i < arr.length; i++) if (arr[i].id === S.sessId) { arr[i].name = name; arr[i].updated = now; found = true; break; }
+        if (!found) {                                       // no saved session yet — create it now
+          var id = 's' + now.toString(36) + '-' + Math.floor(Math.random() * 1e6).toString(36);
+          arr.unshift({ id: id, name: name, created: now, updated: now, windows: sessionSnapshot() });
+          S.sessId = id;
+        }
+        chrome.storage.local.set({ zb_tmux_sessions: arr }, function () { void chrome.runtime.lastError; });
+      });
+    } catch (e) {}
+    return null;
+  }
+  // Save the live layout under a given name, no prompt (used by :save-session NAME).
+  function saveSessionNamed(name) {
+    name = (name || '').trim(); if (!name) return;
+    try {
+      chrome.storage.local.get(SESSIONS_KEY, function (o) {
+        void chrome.runtime.lastError;
+        var arr = (o && o[SESSIONS_KEY]) || [], now = Date.now();
+        var id = 's' + now.toString(36) + '-' + Math.floor(Math.random() * 1e6).toString(36);
+        arr.unshift({ id: id, name: name, created: now, updated: now, windows: sessionSnapshot() });
+        S.sessId = id; S.sessName = name;   // this layout is now the live saved session (for :rename-session)
+        chrome.storage.local.set({ zb_tmux_sessions: arr }, function () { void chrome.runtime.lastError; });
+      });
+    } catch (e) {}
+  }
+  function saveCurrentSession() {   // C-b S / :save-session with no name — prompt for it
+    promptModal('Save current layout as session', '', function (name) { saveSessionNamed(name); });
   }
   function openSessionsPage() {
     var url = chrome.runtime.getURL('pages/sessions.html');
@@ -789,7 +933,7 @@
     else if (d.cmdKey) { armed = false; exec(d.cmdKey, { ctrl: d.ctrl, alt: d.alt }); }
     else if (d.palette) { try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} }
     else if (d.synckey) { relaySync(ev.source, d.synckey); }
-    else if (d.yank) { pushBuffer(d.yank); }
+    else if (d.yank) { pushBuffer(d.yank, d.append); }
   });
 
   /* ------------------------- transient overlays --------------------------- */
@@ -806,7 +950,13 @@
     }
     m.addEventListener('mousedown', function (e) { if (e.target === m) close(); });
     document.addEventListener('keydown', key, true);
-    bodyEl.appendChild(m); return { el: m, close: close };
+    m.setAttribute('tabindex', '-1');
+    bodyEl.appendChild(m);
+    // Pull focus out of whatever pane iframe had it, onto the top document —
+    // otherwise Escape (and any dismiss key) fires inside the iframe and this
+    // top-document listener never sees it, so the overlay can't be closed.
+    try { m.focus(); } catch (e) {}
+    return { el: m, close: close };
   }
   function escq(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
   function showHelp() {
@@ -821,7 +971,15 @@
   }
   function showClock() {
     var m = modal(function (card) { var c = document.createElement('div'); c.className = 'zt-clock'; card.appendChild(c); tickClock(c); });
-    function tickClock(c) { function t() { if (!c.isConnected) return; var d = new Date(); c.textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2); setTimeout(t, 1000); } t(); }
+    function tickClock(c) {
+      function fmt() { var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2); }
+      // Render the time NOW. The old code called t() during modal build(), when
+      // the node isn't in the DOM yet, so its `if (!c.isConnected) return` guard
+      // bailed on the very first tick and left an empty box. Set text up front,
+      // then tick via an interval that stops itself once the modal closes.
+      c.textContent = fmt();
+      var iv = setInterval(function () { if (!c.isConnected) { clearInterval(iv); return; } c.textContent = fmt(); }, 1000);
+    }
     return m;
   }
   function showChooser() {
@@ -858,6 +1016,297 @@
     inp.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Enter') { close(); onOk(inp.value); } else if (e.key === 'Escape') close(); });
     m.addEventListener('mousedown', function (e) { if (e.target === m) close(); });
     setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) {} }, 0);
+  }
+  // tmux command-prompt (C-b :). A real CLI: type `kill-window`, `new-window`,
+  // `split-window -h`, `rename-window foo`, `select-window -t 2`, `detach`, …
+  // Focus lands on the top document (out of any pane iframe) so keys reach us.
+  // Every actionable tmux command (canonical long forms), Tab-completable. The
+  // full `man tmux` command set is recognised in runTmuxCmd — commands that have
+  // no meaning for web-page panes (shell/file/server) report why instead of
+  // running; those aren't offered for completion. Alphabetical.
+  var TMUX_CMDS = ['attach-session', 'break-pane', 'choose-buffer', 'choose-tree', 'clock-mode',
+    'copy-mode', 'detach-client', 'display-message', 'display-panes', 'find-window', 'has-session',
+    'kill-pane', 'kill-server', 'kill-session', 'kill-window', 'last-pane', 'last-window', 'list-buffers',
+    'list-panes', 'list-sessions', 'list-windows', 'move-window', 'new-pane', 'new-session', 'new-window',
+    'next-layout', 'next-window', 'paste-buffer', 'previous-layout', 'previous-window', 'refresh-client',
+    'rename-session', 'rename-window', 'resize-pane', 'respawn-pane', 'respawn-window', 'rotate-window',
+    'save-session', 'select-layout', 'select-pane', 'select-window', 'sessions', 'split-window',
+    'swap-pane', 'swap-window', 'switch-client', 'synchronize-panes'];
+  // One-line descriptions shown in the typeahead list.
+  var TMUX_DESC = {
+    'attach-session': 'load saved session NAME', 'break-pane': 'pane → its own window',
+    'choose-buffer': 'pick a paste buffer', 'choose-tree': 'window list', 'clock-mode': 'big clock',
+    'copy-mode': 'scroll + select text', 'detach-client': 'hide the overlay', 'display-message': 'flash TEXT',
+    'display-panes': 'show pane numbers', 'find-window': 'jump to window matching TEXT', 'has-session': 'exists? NAME',
+    'kill-pane': 'close this pane', 'kill-server': 'reset to one blank window', 'kill-session': 'reset to one blank window',
+    'kill-window': 'close this window', 'last-pane': 'previous pane', 'last-window': 'previous window',
+    'list-buffers': 'paste buffers', 'list-panes': 'show pane numbers', 'list-sessions': 'pick a saved session',
+    'list-windows': 'window list', 'move-window': 'renumber to -t N', 'new-pane': 'split the pane',
+    'new-session': 'fresh blank session', 'new-window': 'new window [NAME]', 'next-layout': 'cycle layout',
+    'next-window': 'next window', 'paste-buffer': 'paste most recent', 'previous-layout': 'cycle layout',
+    'previous-window': 'previous window', 'refresh-client': 'redraw', 'rename-session': 'rename session [NAME]',
+    'rename-window': 'rename window [NAME]', 'resize-pane': '-L / -R / -U / -D', 'respawn-pane': 'reload pane',
+    'respawn-window': 'reload pane', 'rotate-window': 'rotate pane positions', 'save-session': 'save this layout',
+    'select-layout': 'cycle layout', 'select-pane': 'focus -L/-R/-U/-D', 'select-window': 'go to window -t N',
+    'sessions': 'open the Sessions page', 'split-window': '-h side · -v down', 'swap-pane': 'swap with next (-U prev)',
+    'swap-window': 'swap with window -t N', 'switch-client': 'load saved session NAME', 'synchronize-panes': 'broadcast typing (on/off)'
+  };
+  // Completable flags/values per command (the options each one actually honors).
+  var TMUX_OPTS = {
+    'split-window': ['-h', '-v'], 'new-pane': ['-h', '-v'],
+    'select-pane': ['-L', '-R', '-U', '-D'], 'resize-pane': ['-L', '-R', '-U', '-D'], 'swap-pane': ['-U', '-D'],
+    'select-window': ['-t'], 'swap-window': ['-t'], 'move-window': ['-t'],
+    'attach-session': ['-t'], 'switch-client': ['-t'], 'has-session': ['-t'],
+    'synchronize-panes': ['on', 'off'], 'set-window-option': ['synchronize-panes', 'on', 'off'],
+    'select-layout': ['even-horizontal', 'even-vertical', 'main-horizontal', 'main-vertical', 'tiled']
+  };
+  var OPT_DESC = {
+    '-h': 'split side by side', '-v': 'split stacked', '-L': 'left', '-R': 'right', '-U': 'up / previous',
+    '-D': 'down', '-t': 'target index / name', 'on': 'enable', 'off': 'disable', 'synchronize-panes': 'broadcast typing'
+  };
+  // tmux short aliases + the N/A commands' aliases → canonical names.
+  var TMUX_ALIAS = {
+    killw: 'kill-window', killp: 'kill-pane', neww: 'new-window', newp: 'new-pane', 'new': 'new-session',
+    renamew: 'rename-window', rename: 'rename-session', renames: 'rename-session',
+    splitw: 'split-window', split: 'split-window', selectw: 'select-window', selw: 'select-window',
+    next: 'next-window', prev: 'previous-window', last: 'last-window', swapw: 'swap-window', movew: 'move-window',
+    selectp: 'select-pane', lastp: 'last-pane', swapp: 'swap-pane', rotatew: 'rotate-window', breakp: 'break-pane',
+    resizep: 'resize-pane', respawnp: 'respawn-pane', respawnw: 'respawn-window', displayp: 'display-panes',
+    lsp: 'list-panes', selectl: 'select-layout', layout: 'select-layout', nextl: 'next-layout', prevl: 'previous-layout',
+    clock: 'clock-mode', refresh: 'refresh-client', display: 'display-message', detach: 'detach-client',
+    sync: 'synchronize-panes', setw: 'set-window-option', pasteb: 'paste-buffer', lsb: 'list-buffers',
+    attach: 'attach-session', switchc: 'switch-client', ls: 'list-sessions', has: 'has-session',
+    findw: 'find-window', save: 'save-session',
+    capturep: 'capture-pane', pipep: 'pipe-pane', loadb: 'load-buffer', saveb: 'save-buffer', setb: 'set-buffer',
+    showb: 'show-buffer', bind: 'bind-key', unbind: 'unbind-key', send: 'send-keys', lscm: 'list-commands',
+    lsc: 'list-clients', 'set': 'set-option', show: 'show-options', lockc: 'lock-client', locks: 'lock-session',
+    source: 'source-file', start: 'start-server', suspendc: 'suspend-client', showmsgs: 'show-messages',
+    linkw: 'link-window', unlinkw: 'unlink-window', joinp: 'join-pane', movep: 'move-pane', resizew: 'resize-window'
+  };
+  // Recognised tmux commands with no web-pane meaning — reported, not "unknown".
+  var TMUX_NA = {
+    'capture-pane': 'panes are web pages — no terminal scrollback to capture',
+    'pipe-pane': 'no shell to pipe (panes are web pages)',
+    'clear-history': 'no terminal scrollback in a web pane',
+    'load-buffer': 'file I/O is unavailable in the browser sandbox',
+    'save-buffer': 'file I/O is unavailable in the browser sandbox',
+    'delete-buffer': 'buffers are managed automatically',
+    'set-buffer': 'use copy-mode (C-b [) to fill the paste buffer',
+    'show-buffer': 'use C-b = to view/choose buffers',
+    'bind-key': 'remap keys on the Keyboard settings page',
+    'unbind-key': 'remap keys on the Keyboard settings page',
+    'list-keys': 'see C-b ? for the key list, or the Keyboard page',
+    'send-keys': 'just type into the focused web pane',
+    'send-prefix': 'just type into the focused web pane',
+    'list-commands': 'press Tab here to list available commands',
+    'list-clients': 'zwire tmux is per-tab — there are no separate clients',
+    'set-option': "options aren't set via CLI (panes are web pages)",
+    'show-options': "options aren't set via CLI",
+    'show-environment': 'no shell environment in a web pane',
+    'customize-mode': 'use the Keyboard settings page',
+    'lock-client': 'not applicable in the browser',
+    'lock-session': 'not applicable in the browser',
+    'source-file': 'no config file — settings live in the HUD pages',
+    'start-server': 'the overlay is always running, per-tab',
+    'suspend-client': 'not applicable in the browser',
+    'show-messages': 'errors show inline on this prompt',
+    'server-access': 'not applicable — no multi-user server',
+    'choose-client': 'zwire tmux is per-tab — no clients to choose',
+    'confirm-before': 'not applicable',
+    'if-shell': 'no shell to branch on',
+    'run-shell': 'no shell to run (panes are web pages)',
+    'wait-for': 'not applicable',
+    'link-window': "windows can't be shared across tabs",
+    'unlink-window': "windows can't be shared across tabs",
+    'join-pane': "cross-window pane joining isn't supported",
+    'move-pane': "cross-window pane moving isn't supported",
+    'resize-window': 'the window always fills the tab viewport'
+  };
+  function commandPrompt() {
+    if (!open) { open = true; render(); }
+    var back = document.createElement('div'); back.className = 'zt-cmdback';
+    var wrap = document.createElement('div'); wrap.className = 'zt-cmdwrap';
+    var row = document.createElement('div'); row.className = 'zt-cmdrow';
+    var lbl = document.createElement('span'); lbl.className = 'zt-cmdlbl'; lbl.textContent = ':';
+    var inp = document.createElement('input'); inp.className = 'zt-cmdin'; inp.autocomplete = 'off'; inp.spellcheck = false;
+    inp.placeholder = 'tmux command — ↓ / Tab into the list, Enter to run';
+    row.appendChild(lbl); row.appendChild(inp);
+    var listEl = document.createElement('div'); listEl.className = 'zt-cmdlist';
+    var msg = document.createElement('div'); msg.className = 'zt-cmdmsg'; msg.style.display = 'none';
+    wrap.appendChild(row); wrap.appendChild(listEl); wrap.appendChild(msg);
+    back.appendChild(wrap); bodyEl.appendChild(back);
+
+    var base = '', head = '', sug = [], sel = -1, mode = 'cmd';
+    function showMsg(t) { msg.textContent = t || ''; msg.style.display = t ? 'block' : 'none'; }
+    // Live typeahead on every keystroke. First word → command names; once a
+    // command + space is typed, the CURRENT word completes against that command's
+    // supported flags/values (so `split-window -` offers -h / -v, etc.).
+    function refilter() {
+      base = inp.value; sel = -1;
+      var lastSp = base.lastIndexOf(' ');
+      if (lastSp < 0) {                                     // still on the command word
+        mode = 'cmd'; head = ''; var q = base.toLowerCase();
+        sug = TMUX_CMDS.filter(function (c) { return c.indexOf(q) === 0; });
+      } else {                                              // completing an argument
+        mode = 'opt'; head = base.slice(0, lastSp + 1);
+        var canon = TMUX_ALIAS[base.split(/\s+/)[0].toLowerCase()] || base.split(/\s+/)[0].toLowerCase();
+        var tail = base.slice(lastSp + 1).toLowerCase(), opts = TMUX_OPTS[canon] || [];
+        sug = opts.filter(function (o) { return o.toLowerCase().indexOf(tail) === 0; });
+      }
+      draw();
+    }
+    function fill(v) { return mode === 'cmd' ? v : head + v; } // full input line for a suggestion
+    function draw() {
+      listEl.innerHTML = '';
+      sug.forEach(function (c, i) {
+        var it = document.createElement('div'); it.className = 'zt-cmditem' + (i === sel ? ' sel' : '');
+        var nm = document.createElement('span'); nm.textContent = c;
+        var ds = document.createElement('span'); ds.className = 'zt-cmddesc'; ds.textContent = (mode === 'cmd' ? TMUX_DESC[c] : OPT_DESC[c]) || '';
+        it.appendChild(nm); it.appendChild(ds);
+        it.addEventListener('mousedown', function (e) { e.preventDefault(); inp.value = fill(c); refilter(); try { inp.focus(); } catch (x) {} });
+        listEl.appendChild(it);
+      });
+      listEl.style.display = sug.length ? 'block' : 'none';
+    }
+    function move(delta) {
+      if (!sug.length) return;
+      sel += delta;
+      if (sel < -1) sel = sug.length - 1; else if (sel >= sug.length) sel = -1;
+      inp.value = sel >= 0 ? fill(sug[sel]) : base;         // preview highlighted suggestion in the input
+      draw();
+      var s = listEl.querySelector('.sel'); if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' });
+    }
+    function onDocKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); } }
+    document.addEventListener('keydown', onDocKey, true);
+    function close() { try { back.remove(); } catch (e) {} document.removeEventListener('keydown', onDocKey, true); focusActive(); }
+
+    inp.addEventListener('input', function () { showMsg(''); refilter(); });
+    inp.addEventListener('keydown', function (e) {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+      else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); move(1); }
+      else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); move(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); var err = runTmuxCmd(inp.value); if (err) { showMsg(err); inp.select(); } else close(); }
+    });
+    back.addEventListener('mousedown', function (e) { if (e.target === back) close(); });
+    refilter();
+    setTimeout(function () { try { inp.focus(); } catch (e) {} }, 0);
+  }
+  // Parse + run a tmux-style command line. Returns an error string (kept on the
+  // prompt) or null on success. Long names + tmux's short aliases both accepted.
+  function runTmuxCmd(line) {
+    line = (line || '').trim(); if (!line) return null;
+    var parts = line.split(/\s+/), raw = parts[0].toLowerCase(), args = parts.slice(1), rest = args.join(' ');
+    function has(f) { return args.indexOf(f) >= 0; }
+    function opt(f) { var i = args.indexOf(f); return i >= 0 && i + 1 < args.length ? args[i + 1] : null; }
+    function tgt() { var t = opt('-t'); if (t != null) return t; return (args.length && args[0].charAt(0) !== '-') ? args[0] : null; }
+    var cmd = TMUX_ALIAS[raw] || raw;
+    switch (cmd) {
+      /* windows */
+      case 'kill-window': killWindow(); break;
+      case 'kill-pane': closePane(); break;
+      case 'kill-session': case 'kill-server':
+        S.windows.forEach(function (win) { leaves(win.tree).forEach(function (l) { dropPane(l.id); }); });
+        S.windows = [mkWindow(NEWTAB)]; S.active = 0; S.last = null; S.sessId = null; S.sessName = ''; open = false; break;
+      case 'new-session':
+        S.windows.forEach(function (win) { leaves(win.tree).forEach(function (l) { dropPane(l.id); }); });
+        S.windows = [mkWindow(NEWTAB)]; S.active = 0; S.last = null; S.sessId = null;
+        S.sessName = (rest && rest.charAt(0) !== '-') ? rest : ''; open = true; break;
+      case 'new-window': addWindow(); if (rest && rest.charAt(0) !== '-') W().name = rest; break;
+      case 'rename-window': if (rest) W().name = rest; else { renameWindow(); return null; } break;
+      case 'rename-session':
+        if (rest) return renameSession(rest);
+        promptModal('Rename session', S.sessName || '', function (v) { renameSession(v); render(); focusActive(); }); return null;
+      case 'select-window': { var n = parseInt(tgt(), 10); if (isNaN(n)) return 'select-window: need an index'; selectWindowNum(n); break; }
+      case 'next-window': cycleWindow(1); break;
+      case 'previous-window': cycleWindow(-1); break;
+      case 'last-window': lastWindow(); break;
+      case 'swap-window': { var n = parseInt(tgt(), 10); if (isNaN(n) || n < 0 || n >= S.windows.length) return 'swap-window: need a valid index'; var a = S.active, tmp = S.windows[a]; S.windows[a] = S.windows[n]; S.windows[n] = tmp; S.active = n; break; }
+      case 'move-window': { var n = parseInt(tgt(), 10); if (isNaN(n)) { moveWindow(); return null; } n = Math.max(0, Math.min(S.windows.length - 1, n)); var win = S.windows.splice(S.active, 1)[0]; S.windows.splice(n, 0, win); S.active = n; break; }
+      /* panes */
+      case 'split-window': case 'new-pane': splitPane(has('-v') ? 'col' : 'row'); break;
+      case 'select-pane': { var d = has('-L') ? 'left' : has('-R') ? 'right' : has('-U') ? 'up' : has('-D') ? 'down' : null; if (d) navDir(d); else navCycle(1); break; }
+      case 'last-pane': lastPane(); break;
+      case 'swap-pane': swapPane(has('-U') ? -1 : 1); break;
+      case 'rotate-window': rotatePanes(1); break;
+      case 'break-pane': breakPane(); break;
+      case 'resize-pane': { var d = has('-L') ? 'left' : has('-R') ? 'right' : has('-U') ? 'up' : has('-D') ? 'down' : null; if (!d) return 'resize-pane: use -L / -R / -U / -D'; resizePane(d, 0.05); break; }
+      case 'respawn-pane': case 'respawn-window': reloadPane(); break;
+      case 'display-panes': case 'list-panes': showPaneNumbers(); return null;
+      /* layouts */
+      case 'select-layout': {
+        var LN = { 'even-horizontal': 'even-h', 'even-h': 'even-h', 'even-vertical': 'even-v', 'even-v': 'even-v', 'main-horizontal': 'main-h', 'main-h': 'main-h', 'main-vertical': 'main-v', 'main-v': 'main-v', 'tiled': 'tiled' };
+        var ln = LN[(rest || '').toLowerCase().trim()]; if (ln) setLayout(ln); else cycleLayout(); break; }
+      case 'next-layout': case 'previous-layout': cycleLayout(); break;
+      /* modes / display */
+      case 'clock-mode': showClock(); return null;
+      case 'copy-mode': enterCopyMode(); return null;
+      case 'list-windows': case 'choose-tree': case 'choose-window': case 'choose-session': showChooser(); return null;
+      case 'refresh-client': render(); return null;
+      case 'display-message': flashMsg(rest || ''); return null;
+      case 'detach-client': open = false; break;
+      /* synchronize-panes (the one window option that applies) */
+      case 'synchronize-panes': case 'set-window-option': {
+        if (cmd === 'set-window-option' && !/synchronize-panes/.test(rest)) return 'set-window-option: only synchronize-panes applies (panes are web pages)';
+        var w = W(), ls = leaves(w.tree), on = /\bon\b/.test(rest), off = /\boff\b/.test(rest);
+        if (on || off) { w.syncPanes = on ? ls.map(function (l) { return l.id; }) : []; broadcastSync(w); break; }
+        toggleSync(); break; }
+      /* buffers */
+      case 'paste-buffer': pasteBuffer(); return null;
+      case 'list-buffers': case 'choose-buffer': showBuffers(); return null;
+      /* sessions (zwire saved layouts) */
+      case 'attach-session': case 'switch-client': { var nm = tgt(); if (!nm) return cmd + ': need a session name'; loadSessionByName(nm); return null; }
+      case 'list-sessions': chooseSession(); return null;
+      case 'has-session': { var nm = tgt(); if (!nm) return 'has-session: need a name'; hasSession(nm); return null; }
+      case 'find-window': {
+        var q = (rest || '').toLowerCase(); if (!q) return 'find-window: need text'; var idx = -1;
+        for (var i = 0; i < S.windows.length; i++) { var ww = S.windows[i]; if ((ww.name || '').toLowerCase().indexOf(q) >= 0 || leaves(ww.tree).some(function (l) { return (l.url || '').toLowerCase().indexOf(q) >= 0; })) { idx = i; break; } }
+        if (idx < 0) return 'no window matches: ' + rest; selectWindowNum(idx); break; }
+      case 'save-session': if (rest) { saveSessionNamed(rest); flashMsg('saved session "' + rest + '"'); } else saveCurrentSession(); return null;
+      case 'sessions': openSessionsPage(); return null;
+      default:
+        if (TMUX_NA[cmd]) return cmd + ': N/A — ' + TMUX_NA[cmd];
+        return 'unknown command: ' + cmd;
+    }
+    render(); focusActive(); return null;
+  }
+  // Transient centered toast inside the overlay (display-message, async results).
+  function flashMsg(text) {
+    if (!text) return; var el = document.createElement('div'); el.className = 'zt-flash'; el.textContent = text;
+    bodyEl.appendChild(el); setTimeout(function () { try { el.remove(); } catch (e) {} }, 1800);
+  }
+  function loadSessionByName(name) {
+    var lc = String(name).toLowerCase();
+    try {
+      chrome.storage.local.get(SESSIONS_KEY, function (o) {
+        void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || [], hit = null;
+        for (var i = 0; i < arr.length; i++) if (String(arr[i].name).toLowerCase() === lc) { hit = arr[i]; break; }
+        if (!hit) for (var j = 0; j < arr.length; j++) if (String(arr[j].name).toLowerCase().indexOf(lc) >= 0) { hit = arr[j]; break; }
+        if (hit) applySession(hit); else flashMsg('no session named "' + name + '"');
+      });
+    } catch (e) {}
+  }
+  function hasSession(name) {
+    var lc = String(name).toLowerCase();
+    try { chrome.storage.local.get(SESSIONS_KEY, function (o) { void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || []; flashMsg(arr.some(function (s) { return String(s.name).toLowerCase() === lc; }) ? ('session "' + name + '" exists') : ('no session "' + name + '"')); }); } catch (e) {}
+  }
+  function chooseSession() {
+    try {
+      chrome.storage.local.get(SESSIONS_KEY, function (o) {
+        void chrome.runtime.lastError; var arr = (o && o[SESSIONS_KEY]) || [];
+        modal(function (card) {
+          card.innerHTML = '<h4>sessions</h4>';
+          if (!arr.length) { card.appendChild(document.createTextNode('no saved sessions — :save-session to make one')); return; }
+          arr.forEach(function (s, i) {
+            var np = (s.windows || []).reduce(function (a, w) { return a + ((w.panes || []).length || 0); }, 0);
+            var row = document.createElement('div'); row.className = 'zt-wrow';
+            row.textContent = i + ': ' + (s.name || '(unnamed)') + '  (' + (s.windows || []).length + ' win · ' + np + ' panes)' + (s.hotkey ? ('   C-b ' + s.hotkey) : '');
+            row.addEventListener('click', function () { applySession(s); var m = card.parentNode; if (m) m.remove(); });
+            card.appendChild(row);
+          });
+        }, function (k, cl) { if (/^[0-9]$/.test(k)) { var n = parseInt(k, 10); if (arr[n]) applySession(arr[n]); cl(); return false; } });
+      });
+    } catch (e) {}
   }
   function moveWindow() {
     promptModal('Move window ' + S.active + ' to index', S.active, function (v) {

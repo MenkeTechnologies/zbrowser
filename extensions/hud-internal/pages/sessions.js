@@ -9,6 +9,13 @@
   'use strict';
   var Z = window.ZGui || {};
   var SKEY = 'zb_tmux_sessions';
+  // Built-in tmux keys (C-b <key>) from the shared keymap, so we can warn when a
+  // layout hotkey shadows one (the layout wins, but you should know).
+  var TMUX_KEYS = (function () {
+    var m = {}, reg = window.ZWIRE_KEYMAP, cat = reg && (reg.categories || []).filter(function (c) { return c.id === 'tmux'; })[0];
+    if (cat) cat.actions.forEach(function (a) { if (a.def) m[a.def] = a.label; });
+    return m;
+  })();
   var sessions = [];
   var filter = '';
   var editingId = null;         // session currently expanded for window/pane editing
@@ -221,6 +228,16 @@
       var head = el('div', 'zsm-head');
       var title = el('div', 'zsm-title');
       title.appendChild(el('span', 'zsm-name', s.name));
+      // Shortcut binding: type one key to load this layout via C-b <key>, no page.
+      var hkWrap = el('label', 'zsm-hotkey'); hkWrap.appendChild(el('span', 'zsm-hotkey-lbl', 'C-b'));
+      var hk = el('input', 'zs-input zsm-hotkey-in'); hk.value = s.hotkey || ''; hk.maxLength = 1;
+      hk.placeholder = '·'; hk.title = 'Shortcut: press C-b then this key to load this layout (overrides any built-in on that key). Case-sensitive — P and p are distinct.';
+      var hkWarn = el('span', 'zsm-hkwarn');
+      function updHkWarn() { var b = s.hotkey && TMUX_KEYS[s.hotkey]; hkWarn.textContent = b ? ('↳ overrides ' + b) : ''; }
+      hk.addEventListener('change', function () { s.hotkey = (hk.value || '').trim().slice(0, 1); touch(s); persist(); updHkWarn(); });
+      hk.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); hk.blur(); } });
+      updHkWarn();
+      hkWrap.appendChild(hk); hkWrap.appendChild(hkWarn); title.appendChild(hkWrap);
       title.appendChild(el('span', 'zsm-meta', (s.windows || []).length + ' win · ' + paneCount(s) + ' pane' + (paneCount(s) === 1 ? '' : 's') + (s.updated ? ' · ' + fmtWhen(s.updated) : '')));
       head.appendChild(title);
 
@@ -254,6 +271,10 @@
     '.zsm-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
     '.zsm-title{display:flex;flex-direction:column;gap:2px;min-width:0;}',
     '.zsm-name{color:var(--text);font-weight:600;font-size:15px;}',
+    '.zsm-hotkey{display:inline-flex;align-items:center;gap:5px;margin:2px 0;}',
+    '.zsm-hotkey-lbl{color:var(--text-dim);font-size:11px;font-family:"Share Tech Mono",monospace;}',
+    '.zsm-hotkey-in{width:2.4em;text-align:center;padding:2px 4px;font-family:"Share Tech Mono",monospace;text-transform:none;}',
+    '.zsm-hkwarn{color:var(--magenta,#ff4da6);font-size:11px;margin-left:6px;}',
     '.zsm-meta{color:var(--text-dim);font-size:12px;}',
     '.zsm-acts{display:flex;gap:6px;flex-wrap:wrap;}',
     '.zsm-editor{margin-top:12px;border-top:1px solid var(--border);padding-top:10px;}',

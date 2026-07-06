@@ -14,6 +14,20 @@
   var prefix = null;         // zb_tmux_prefix (chord list) — null = default C-b / ⌥B
   var opts = {};             // zb_tmux_opts { timeout }
 
+  // Single-char keys offered as "free" suggestions (letters + digits). Symbols,
+  // arrows and Space are also bindable, but this is what people reach for.
+  var FREE_CANDIDATES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
+  (function () {
+    var s = document.createElement('style');
+    s.textContent =
+      '.key-warn{color:var(--magenta,#ff4da6);font-size:11px;margin-left:8px;}' +
+      '.key-conflict .ik::before{content:"\\26A0 ";color:var(--magenta,#ff4da6);}' +
+      '.key-free{padding:8px 2px 2px;line-height:2.1;}' +
+      '.key-free .sub{margin-right:6px;}' +
+      '.xt-kbd-free{opacity:.6;cursor:default;font-weight:400;}';
+    document.head.appendChild(s);
+  })();
+
   var shell = window.ZBHUD.mount({
     title: 'KEYBOARD', current: 'keys.html', filterPlaceholder: '>_ filter shortcuts…',
     onFilter: function (v) { filter = (v || '').toLowerCase(); render(); }
@@ -24,10 +38,19 @@
   function match(a) { return !filter || (a.label + ' ' + a.name + ' ' + keyOf(a)).toLowerCase().indexOf(filter) >= 0; }
   function save(cb) { try { chrome.storage.local.set({ zb_keys: overrides }, function () { void chrome.runtime.lastError; if (cb) cb(); }); } catch (e) { if (cb) cb(); } }
 
-  // detect a conflict: another action currently bound to the same key
+  // The action group an action lives in — that's its keyspace. tmux post-prefix
+  // keys, vim-mode keys, palette keys and the global chords are independent
+  // contexts, so a clash only matters WITHIN the same group.
+  function groupOf(name) {
+    var g = null;
+    (REG.categories || []).forEach(function (c) { if (c.actions.some(function (x) { return x.name === name; })) g = c.actions; });
+    if (!g && REG.global && REG.global.some(function (x) { return x.name === name; })) g = REG.global;
+    return g;
+  }
+  // detect a conflict: another action in the SAME group bound to the same key
   function conflict(name, key) {
     var hit = null;
-    REG.categories.forEach(function (c) { c.actions.forEach(function (a) { if (a.name !== name && keyOf(a) === key) hit = a.label; }); });
+    (groupOf(name) || []).forEach(function (a) { if (a.name !== name && keyOf(a) === key) hit = a.label; });
     return hit;
   }
 
@@ -48,7 +71,7 @@
     if (key === a.def) { delete overrides[a.name]; }   // back to default
     else { overrides[a.name] = key; }
     var c = conflict(a.name, key);
-    save(function () { if (c && Z.toast) Z.toast('Note: "' + key + '" also runs ' + c); render(); });
+    save(function () { if (c && Z.toast) Z.toast('⚠ "' + (key === ' ' ? 'Space' : key) + '" is also bound to "' + c + '" — both fire on that key'); render(); });
   }
 
   function chipFor(a) {
@@ -72,18 +95,36 @@
   function catCard(cat) {
     var acts = cat.actions.filter(match);
     if (!acts.length) return null;
+    // key -> [labels] across the WHOLE group (its keyspace) so we can flag
+    // clashes and list which keys are still free, regardless of the filter.
+    var used = {};
+    cat.actions.forEach(function (a) { var k = keyOf(a); (used[k] = used[k] || []).push(a.label); });
     var inner = document.createElement('div');
     inner.appendChild(el('div', 'set-h', '// ' + cat.label.toUpperCase()));
     var list = el('div', 'info-list');
     acts.forEach(function (a) {
       var row = el('div', 'info-row');
+      var k = keyOf(a);
+      var shared = (used[k] || []).filter(function (l) { return l !== a.label; });
+      if (shared.length) row.className += ' key-conflict';   // ⚠ marker on the label
       row.appendChild(el('span', 'ik', esc(a.label)));
       var iv = el('span', 'iv'); iv.appendChild(chipFor(a));
       if (overrides[a.name]) { var d = el('span', 'sub'); d.textContent = ' default ' + a.def; iv.appendChild(d); }
+      if (shared.length) iv.appendChild(el('span', 'key-warn', 'also runs ' + esc(shared.join(', '))));
       row.appendChild(iv);
       list.appendChild(row);
     });
     inner.appendChild(list);
+    // Which keys in this section are still unbound — so you can pick one that
+    // won't clash. (Only when not filtering, so the set is meaningful.)
+    if (!filter) {
+      var free = FREE_CANDIDATES.filter(function (c) { return !used[c]; });
+      var fl = el('div', 'key-free');
+      fl.appendChild(el('span', 'sub', 'Free keys:'));
+      if (free.length) { free.forEach(function (c) { fl.appendChild(el('kbd', 'xt-kbd xt-kbd-free', esc(c))); }); }
+      else { fl.appendChild(el('span', 'sub', '(every a–z / 0–9 is taken)')); }
+      inner.appendChild(fl);
+    }
     return Z.card({ body: inner }).el;
   }
   function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
