@@ -181,9 +181,13 @@
         "chrome://new-tab-page/*",
         "chrome://new-tab-page-third-party/*"
       ],
+      "css": [
+        "lib/zgui-core/webui/powerline.css"
+      ],
       "js": [
         "schemes.js",
-        "zstatus.js"
+        "lib/zgui-core/webui/powerline.js",
+        "zpowerline.js"
       ],
       "run_at": "document_idle",
       "all_frames": false
