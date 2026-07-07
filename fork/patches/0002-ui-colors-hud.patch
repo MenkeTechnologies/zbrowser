@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
-index 599797319f..a30293f43d 100644
+index 599797319f..be1f244686 100644
 --- a/chrome/browser/ui/color/chrome_color_mixer.cc
 +++ b/chrome/browser/ui/color/chrome_color_mixer.cc
 @@ -6,6 +6,25 @@
@@ -28,7 +28,7 @@ index 599797319f..a30293f43d 100644
  #include "base/feature_list.h"
  #include "base/logging.h"
  #include "base/strings/string_number_conversions.h"
-@@ -29,6 +48,97 @@
+@@ -29,6 +48,129 @@
  
  namespace {
  
@@ -84,10 +84,30 @@ index 599797319f..a30293f43d 100644
 +  }
 +}
 +
++// Light mode for the NATIVE chrome. zwire-host writes a plain `hud-light` text
++// projection ("1"/"0") beside `hud-scheme` when [theme.ui].light changes; the
++// same FilePathWatcher below picks it up. Left as an int so a missing file (no
++// preference yet) reads as dark.
++std::atomic<int>& HudLightMode() {
++  static std::atomic<int> light{0};
++  return light;
++}
++
++void ReadHudLightFile() {
++  std::string contents;
++  if (!base::ReadFileToString(HudSchemeDir().Append("hud-light"), &contents))
++    return;
++  std::string v(base::TrimWhitespaceASCII(contents, base::TRIM_ALL));
++  HudLightMode().store((v == "1" || v == "true") ? 1 : 0);
++}
++
 +void OnHudSchemeChanged(const base::FilePath&, bool) {
 +  int before = HudSchemeIndex().load();
++  int before_light = HudLightMode().load();
 +  ReadHudSchemeFile();
-+  if (HudSchemeIndex().load() != before) {
++  ReadHudLightFile();
++  if (HudSchemeIndex().load() != before ||
++      HudLightMode().load() != before_light) {
 +    // Rebuild all color providers + repaint (same path as OS theme changes).
 +    ui::NativeTheme::GetInstanceForNativeUi()->NotifyOnNativeThemeUpdated();
 +    ui::NativeTheme::GetInstanceForWeb()->NotifyOnNativeThemeUpdated();
@@ -101,9 +121,17 @@ index 599797319f..a30293f43d 100644
 +    return;
 +  started = true;
 +  ReadHudSchemeFile();
++  ReadHudLightFile();
 +  // Watch the directory (it exists; the file may be created later by the picker).
 +  watcher->Watch(HudSchemeDir(), base::FilePathWatcher::Type::kNonRecursive,
 +                 base::BindRepeating(&OnHudSchemeChanged));
++  // EnsureHudSchemeWatcher only POSTS this task, so the color providers were
++  // likely already built with defaults (dark) before we read the persisted
++  // state. Force one repaint so the saved scheme + LIGHT mode apply at startup —
++  // otherwise light only takes effect after the user toggles it (the scheme
++  // dodges this because the extension re-writes hud-scheme on launch).
++  ui::NativeTheme::GetInstanceForNativeUi()->NotifyOnNativeThemeUpdated();
++  ui::NativeTheme::GetInstanceForWeb()->NotifyOnNativeThemeUpdated();
 +}
 +
 +void EnsureHudSchemeWatcher() {
@@ -121,12 +149,16 @@ index 599797319f..a30293f43d 100644
 +    i = 0;
 +  return base::span(kHudSchemes)[static_cast<size_t>(i)];
 +}
++
++bool HudIsLight() {
++  return HudLightMode().load() != 0;
++}
 +// ---------------------------------------------------------------------------
 +
  // This differs from ui::SelectColorBasedOnInput in that we're checking if the
  // input transform is *not* dark under the assumption that the background color
  // *is* dark from a potential custom theme. Additionally, if the mode is
-@@ -1117,6 +1227,101 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+@@ -1117,6 +1259,106 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
    mixer[kColorReadAnythingFullPageScrollbarLowContrastDark] = {
        SkColorSetRGB(0xC7, 0xC7, 0xC7)};
  
@@ -139,18 +171,23 @@ index 599797319f..a30293f43d 100644
 +    // hardcoded palette — cyberpunk defaults to the real near-black #05050a.
 +    EnsureHudSchemeWatcher();
 +    const HudScheme& hs = ActiveHudScheme();
-+    const SkColor kHudBlack = hs.p;         // frame inactive (darkest bg)
-+    const SkColor kHudFrame = hs.s;         // frame active (secondary bg)
-+    const SkColor kHudToolbar = hs.s;       // toolbar / bookmarks
-+    const SkColor kHudTabActive = hs.c;     // active tab well (card bg)
-+    const SkColor kHudTabInactive = hs.p;   // inactive tab (primary bg)
-+    const SkColor kHudCard = hs.c;          // omnibox field
-+    const SkColor kHudText = hs.t;
-+    const SkColor kHudTextDim = hs.td;
++    // zwire HUD light mode (driven by ~/.zwire/hud-light): swap the dark scheme
++    // bg/text for neutral LIGHT surfaces — the same neutrals as the web light
++    // theme (zgui-core cyberpunk.css [data-theme=light]) — while keeping the
++    // scheme's neon accents. So the toolbar/tabs/frame follow light mode too.
++    const bool kLight = HudIsLight();
++    const SkColor kHudBlack = kLight ? SkColorSetRGB(0xE4, 0xE7, 0xEC) : hs.p;   // frame inactive
++    const SkColor kHudFrame = kLight ? SkColorSetRGB(0xE4, 0xE7, 0xEC) : hs.s;   // frame active
++    const SkColor kHudToolbar = kLight ? SkColorSetRGB(0xE4, 0xE7, 0xEC) : hs.s; // toolbar / bookmarks
++    const SkColor kHudTabActive = kLight ? SK_ColorWHITE : hs.c;                 // active tab well
++    const SkColor kHudTabInactive = kLight ? SkColorSetRGB(0xF0, 0xF2, 0xF5) : hs.p; // inactive tab
++    const SkColor kHudCard = kLight ? SK_ColorWHITE : hs.c;                      // omnibox field
++    const SkColor kHudText = kLight ? SkColorSetRGB(0x1E, 0x29, 0x3B) : hs.t;
++    const SkColor kHudTextDim = kLight ? SkColorSetRGB(0x47, 0x55, 0x69) : hs.td;
 +    const SkColor kHudCyan = hs.cy;
 +    const SkColor kHudMagenta = hs.a;       // accent = primary (hot pink in cyberpunk)
 +    const SkColor kHudPurple = hs.m;        // scheme's magenta/tertiary
-+    const SkColor kHudBorder = hs.b;
++    const SkColor kHudBorder = kLight ? SkColorSetRGB(0xCB, 0xD5, 0xE1) : hs.b;
 +    // Frame / titlebar.
 +    mixer[ui::kColorFrameActive] = {kHudFrame};
 +    mixer[ui::kColorFrameInactive] = {kHudBlack};
@@ -182,9 +219,9 @@ index 599797319f..a30293f43d 100644
 +    // (chrome://extensions, settings, history, downloads, menus, dialogs) via
 +    // the color pipeline's --color-* CSS vars. Set them so the whole product,
 +    // not just the browser frame, reads cyberpunk.
-+    const SkColor kHudSurface = hs.p;      // page background
-+    const SkColor kHudContainer = hs.c;    // cards / rows
-+    const SkColor kHudContainerHi = hs.h;
++    const SkColor kHudSurface = kLight ? SkColorSetRGB(0xF0, 0xF2, 0xF5) : hs.p;   // page background
++    const SkColor kHudContainer = kLight ? SK_ColorWHITE : hs.c;                   // cards / rows
++    const SkColor kHudContainerHi = kLight ? SkColorSetRGB(0xF7, 0xF8, 0xFA) : hs.h;
 +    mixer[ui::kColorSysSurface] = {kHudSurface};
 +    mixer[ui::kColorSysBase] = {kHudSurface};
 +    mixer[ui::kColorSysBaseContainer] = {kHudContainer};
@@ -228,7 +265,7 @@ index 599797319f..a30293f43d 100644
    // Apply high contrast recipes if necessary.
    if (!ShouldApplyHighContrastColors(key)) {
      return;
-@@ -1132,3 +1337,42 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+@@ -1132,3 +1374,50 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
    mixer[ui::kColorFrameActive] = {SK_ColorDKGRAY};
    mixer[ui::kColorFrameInactive] = {SK_ColorGRAY};
  }
@@ -245,28 +282,36 @@ index 599797319f..a30293f43d 100644
 +                           const ui::ColorProviderKey& key) {
 +  EnsureHudSchemeWatcher();
 +  const HudScheme& hs = ActiveHudScheme();
++  // Light mode: light neutral tab surfaces (matching the HUD block above), dark
++  // label text; keep the scheme accents for the active label + stroke.
++  const bool kL = HudIsLight();
++  const SkColor tab_active = kL ? SK_ColorWHITE : hs.c;                 // active well
++  const SkColor tab_inactive = kL ? SkColorSetRGB(0xF0, 0xF2, 0xF5) : hs.p;
++  const SkColor tab_hover = kL ? SkColorSetRGB(0xF7, 0xF8, 0xFA) : hs.h;
++  const SkColor tab_selected = kL ? SkColorSetRGB(0xE4, 0xE7, 0xEC) : hs.s;
++  const SkColor tab_fg_dim = kL ? SkColorSetRGB(0x47, 0x55, 0x69) : hs.td;
 +  ui::ColorMixer& mixer = provider->AddMixer();
 +  // Tab wells — direct scheme colors (card bg for active, primary bg for rest).
-+  mixer[kColorTabBackgroundActiveFrameActive] = {hs.c};
-+  mixer[kColorTabBackgroundActiveFrameInactive] = {hs.c};
-+  mixer[kColorTabBackgroundInactiveFrameActive] = {hs.p};
-+  mixer[kColorTabBackgroundInactiveFrameInactive] = {hs.p};
-+  mixer[kColorDetachedTabBackgroundActiveFrameActive] = {hs.c};
++  mixer[kColorTabBackgroundActiveFrameActive] = {tab_active};
++  mixer[kColorTabBackgroundActiveFrameInactive] = {tab_active};
++  mixer[kColorTabBackgroundInactiveFrameActive] = {tab_inactive};
++  mixer[kColorTabBackgroundInactiveFrameInactive] = {tab_inactive};
++  mixer[kColorDetachedTabBackgroundActiveFrameActive] = {tab_active};
 +  // Hover + selected tab wells — the Material tab-strip mixer points these at GM3
 +  // "Sys" state tokens (kColorSysStateHeaderHover / …HeaderSelect) that ignore
 +  // the HUD palette, so hovering an inactive tab flashed a GM3-default (red)
 +  // background. Pin them to the scheme's hover/secondary bg.
-+  mixer[kColorTabBackgroundInactiveHoverFrameActive] = {hs.h};
-+  mixer[kColorTabBackgroundInactiveHoverFrameInactive] = {hs.h};
-+  mixer[kColorTabBackgroundSelectedFrameActive] = {hs.s};
-+  mixer[kColorTabBackgroundSelectedFrameInactive] = {hs.s};
-+  mixer[kColorTabBackgroundSelectedHoverFrameActive] = {hs.h};
-+  mixer[kColorTabBackgroundSelectedHoverFrameInactive] = {hs.h};
++  mixer[kColorTabBackgroundInactiveHoverFrameActive] = {tab_hover};
++  mixer[kColorTabBackgroundInactiveHoverFrameInactive] = {tab_hover};
++  mixer[kColorTabBackgroundSelectedFrameActive] = {tab_selected};
++  mixer[kColorTabBackgroundSelectedFrameInactive] = {tab_selected};
++  mixer[kColorTabBackgroundSelectedHoverFrameActive] = {tab_hover};
++  mixer[kColorTabBackgroundSelectedHoverFrameInactive] = {tab_hover};
 +  // Tab labels — accent on the active tab, dim text on the rest.
 +  mixer[kColorTabForegroundActiveFrameActive] = {hs.a};
 +  mixer[kColorTabForegroundActiveFrameInactive] = {hs.a};
-+  mixer[kColorTabForegroundInactiveFrameActive] = {hs.td};
-+  mixer[kColorTabForegroundInactiveFrameInactive] = {hs.td};
++  mixer[kColorTabForegroundInactiveFrameActive] = {tab_fg_dim};
++  mixer[kColorTabForegroundInactiveFrameInactive] = {tab_fg_dim};
 +  // Neon tab outline: cyan when focused, magenta when blurred.
 +  mixer[kColorTabStrokeFrameActive] = {hs.cy};
 +  mixer[kColorTabStrokeFrameInactive] = {hs.m};

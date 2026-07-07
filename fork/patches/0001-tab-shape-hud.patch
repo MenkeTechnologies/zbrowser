@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/ui/views/tabs/tab_style_views.cc b/chrome/browser/ui/views/tabs/tab_style_views.cc
-index 44a60df681..b979c2274d 100644
+index 44a60df681..3e68e8bb29 100644
 --- a/chrome/browser/ui/views/tabs/tab_style_views.cc
 +++ b/chrome/browser/ui/views/tabs/tab_style_views.cc
 @@ -302,16 +302,27 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
@@ -152,3 +152,13 @@ index 44a60df681..b979c2274d 100644
    }
  
    if (path_type != TabStyle::PathType::kBorder) {
+@@ -548,6 +517,9 @@ void TabStyleViewsImpl::PaintTabBackgroundWithImages(
+ 
+ gfx::Insets TabStyleViewsImpl::GetContentsInsets() const {
+   gfx::Insets base_style_insets = tab_style()->GetContentsInsets();
++  // zwire HUD: the hard-trapezoid tab has a sloped left edge that crowds the
++  // favicon; add left padding so the icon/title sit off the diagonal.
++  base_style_insets.set_left(base_style_insets.left() + 8);
+   gfx::Insets split_insets = gfx::Insets(0);
+ 
+   // For split tabs, remove insets equal to the total separator width between
