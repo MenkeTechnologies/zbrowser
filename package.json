@@ -13,6 +13,7 @@
     "dev": "bash scripts/dev.sh",
     "build": "bash scripts/build.sh",
     "localinstall": "bash scripts/localinstall.sh",
+    "release-macos": "bash scripts/release-macos.sh",
     "test": "bash scripts/test.sh",
     "clean": "bash scripts/clean.sh",
     "bust": "bash scripts/bust.sh",

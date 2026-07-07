@@ -12,3 +12,6 @@ node_modules/
 extensions/*/_metadata/
 extensions/*/*/_metadata/
 newtab/_metadata/
+
+# macOS release artifacts (scripts/release-macos.sh)
+dist/
