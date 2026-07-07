@@ -55,6 +55,24 @@ if [[ ! -f "$STATE/base.path" ]]; then
 fi
 BASE_BIN="$(cat "$STATE/base.path")"
 BASE_APP="${BASE_BIN%/Contents/MacOS/*}"          # …/zbrowser.app
+# base.path stores an ABSOLUTE path; a state-dir migration (e.g. the bare `zwire`
+# folder → the bundle-id `com.menketechnologies.zwire` dir) moves $STATE/base but
+# leaves that recorded path pointing at the old, now-deleted location. The bundle
+# always lives under $STATE/base/, so recover it there and rewrite the pointer
+# before falling back to a full rebuild — no needless ~325MB refetch.
+if [[ ! -d "$BASE_APP" ]]; then
+  RECOVERED="$(ls -d "$STATE/base/"*.app 2>/dev/null | head -1 || true)"
+  RECOVERED_BIN="$RECOVERED/Contents/MacOS/$(basename "${BASE_BIN}")"
+  if [[ -n "$RECOVERED" && -x "$RECOVERED_BIN" ]]; then
+    cyber_warn "recorded base moved — repointing to $RECOVERED"
+    printf '%s\n' "$RECOVERED_BIN" > "$STATE/base.path"
+    BASE_BIN="$RECOVERED_BIN"; BASE_APP="$RECOVERED"
+  else
+    cyber_warn "recorded base missing — rebuilding …"
+    bash scripts/build.sh >/dev/null || { cyber_fail "base build failed"; exit 1; }
+    BASE_BIN="$(cat "$STATE/base.path")"; BASE_APP="${BASE_BIN%/Contents/MacOS/*}"
+  fi
+fi
 APP_DIRNAME="$(basename "$BASE_APP")"              # zbrowser.app
 [[ -d "$BASE_APP" ]] || { cyber_fail "base bundle missing: $BASE_APP"; exit 1; }
 cyber_ok "base bundle // $BASE_APP"
