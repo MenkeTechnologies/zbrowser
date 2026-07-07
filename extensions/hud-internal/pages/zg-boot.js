@@ -167,6 +167,24 @@
       if (applyingExternal) return;                 // echo from load/poll, don't re-write
       try { chrome.runtime.sendNativeMessage(HOST, { scheme: name }, function () { void chrome.runtime.lastError; }); } catch (e) {}
       try { chrome.storage.local.set({ zb_scheme: name }); } catch (e) {}
+      // setLight() re-applies the scheme, so onApply ALSO fires on a light/dark
+      // toggle from ANY surface — including the appShell settings modal + scheme
+      // cards, which call setLight directly and never touched zb_ui. Mirror the
+      // current light + fx into zb_ui here so the background bridge writes it to
+      // the host (~/.zwire/global.toml). This is why light wasn't updating the
+      // file while the scheme (which had this onApply hook) was.
+      try {
+        var ui = {};
+        if (ZGui.colorscheme.isLight) ui.light = !!ZGui.colorscheme.isLight();
+        if (ZGui.fx && ZGui.fx.all) { var a = ZGui.fx.all(); ui.scanlines = a.scanlines; ui.vignette = a.vignette; ui.glow = a.glow; ui.anim = a.anim; }
+        // Write the host DIRECTLY (same as the scheme write above) — do NOT depend
+        // on the background bridge to forward a zb_ui storage change. That is the
+        // reason scheme updated the file but light didn't: scheme is a direct page
+        // write, light was going through the bridge. Also mirror to zb_ui so
+        // HUD content scripts on this origin follow.
+        publishUi(ui);
+        chrome.storage.local.set({ zb_ui: ui });
+      } catch (e) {}
     });
     function pull() {
       try {
