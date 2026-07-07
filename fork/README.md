@@ -33,12 +33,24 @@ zwire                                            # runs the HUD-chromed fork
 | File | Role |
 |---|---|
 | `CHROMIUM_VERSION` | pinned release tag the patch series targets |
-| `args.gn` | GN build config — unbranded (`is_chrome_branded=false`), release |
+| `args.gn` | GN build config — unbranded (`is_chrome_branded=false`), release, proprietary codecs on (H.264/AAC) |
 | `fetch.sh` | install depot_tools, fetch + checkout the pinned tag, sync deps |
 | `apply-patches.sh` | apply / reverse the HUD patch series over `src/` |
 | `build.sh` | `gn gen` + `autoninja chrome` |
 | `package.sh` | install the built app as the zwire base + rebrand |
 | `patches/` | the HUD patch series + `patches/README.md` target-file map |
+
+## Media codecs
+
+Stock Chromium builds with `ffmpeg_branding="Chromium"` — open codecs only
+(VP8/VP9/AV1/Opus/Vorbis), no H.264/AAC. Sites that stream H.264 (Synology
+SurveillanceStation web live-view, most IP cameras, MP4/AAC media) play in Google
+Chrome but not in an unpatched Chromium build. `args.gn` sets
+`proprietary_codecs = true` + `ffmpeg_branding = "Chrome"` so zwire decodes what
+Chrome does. H.265/HEVC is not software-decoded — Chromium routes it to the OS
+hardware decoder (`enable_platform_hevc`, VideoToolbox on macOS); Synology gates
+H.265/MPEG4/MxPEG to its native Client anyway, so set such cameras' live-view
+stream to H.264 for browser playback.
 
 ## Status
 

@@ -9,6 +9,20 @@
 is_chrome_branded = false          # no Google branding; ships as unbranded Chromium
 is_official_build = true           # full optimization (release quality)
 
+# --- media codecs ---
+# Default Chromium ships ffmpeg_branding="Chromium" (open codecs only: VP8/VP9/
+# AV1/Opus/Vorbis) and no H.264/AAC. Sites that stream H.264 — Synology
+# SurveillanceStation web live-view, most IP cameras, MP4/AAC media — play in
+# Google Chrome but not in a stock Chromium build. Enable the proprietary set so
+# zwire decodes what Chrome does.
+proprietary_codecs = true          # H.264 / AAC / MPEG in <video>/MSE
+ffmpeg_branding = "Chrome"         # bundle the ffmpeg build that carries them
+# H.265/HEVC is NOT software-decoded even here; Chromium routes it to the
+# platform/hardware decoder (VideoToolbox on macOS). Synology gates H.265/MPEG4/
+# MxPEG to its native Client regardless, so the browser never receives them.
+enable_platform_hevc = true          # allow HEVC where the OS provides it
+enable_platform_hevc_decoding = true # wire the platform HEVC decode path
+
 # --- build speed / size ---
 is_debug = false
 is_component_build = false
