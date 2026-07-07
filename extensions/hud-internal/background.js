@@ -18,6 +18,11 @@ function pushToZpwr(scheme) {
   if (!scheme || scheme === lastPushed) return;
   lastPushed = scheme;
   try { chrome.runtime.sendMessage(ZPWR_ID, { type: 'zb-scheme', scheme: scheme }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+  // newtab is isolated too — push the scheme so it flips INSTANTLY instead of
+  // waiting for its 1.5s native-file poll (which, on a fresh profile with no
+  // hud-scheme file, would just show cyberpunk). ZB_NEWTAB_ID is assigned later
+  // in this file but this runs from async callbacks, so it's set by then.
+  try { if (typeof ZB_NEWTAB_ID !== 'undefined' && ZB_NEWTAB_ID) chrome.runtime.sendMessage(ZB_NEWTAB_ID, { type: 'zb-scheme', scheme: scheme }, function () { void chrome.runtime.lastError; }); } catch (e) {}
 }
 
 function mirror(scheme) {
@@ -93,6 +98,15 @@ function seedFromNative() {
     chrome.runtime.sendNativeMessage(HOST, { cmd: 'get' }, function (r) {
       void chrome.runtime.lastError;
       if (r && r.scheme) mirror(r.scheme);
+      // Also seed light/fx from the native file (hud-ui.json). On a fresh profile
+      // chrome.storage has no zb_ui, but ~/.zwire may already carry light/fx state
+      // (synced dotfiles, a prior session). Adopt it ONLY when storage is empty —
+      // writing zb_ui fires the onChanged fan-out that mirrors + pushes to
+      // zpwr/newtab, so HUD pages and zpwr converge instead of staying dark while
+      // newtab (which polls the file directly) goes light.
+      if (r && r.ui && typeof r.ui === 'object' && Object.keys(r.ui).length) {
+        try { chrome.storage.local.get('zb_ui', function (o) { void chrome.runtime.lastError; if (!o || !o.zb_ui) chrome.storage.local.set({ zb_ui: r.ui }); }); } catch (e) {}
+      }
     });
   } catch (e) {}
 }

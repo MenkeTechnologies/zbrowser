@@ -295,7 +295,17 @@
       }
       function isLight() { try { return !!(ZGui.colorscheme && ZGui.colorscheme.isLight && ZGui.colorscheme.isLight()); } catch (e) { return false; } }
       function fxState(n) { try { return !!(ZGui.fx && ZGui.fx.get && ZGui.fx.get(n)); } catch (e) { return false; } }
-      function fxCmd(name, label, icon) { return { icon: icon, label: label + '  (' + (fxState(name) ? 'on' : 'off') + ')', hint: 'setting', run: function () { try { if (ZGui.fx) ZGui.fx.toggle(name); mirrorUi(); } catch (e) {} } }; }
+      function fxCmd(name, label, icon) { return { icon: icon, label: label + '  (' + (fxState(name) ? 'on' : 'off') + ')', hint: 'setting', run: function () { try {
+        if (ZGui.fx) ZGui.fx.toggle(name);
+        var on = fxState(name);
+        // Bridge the CSS-class fx to the actual overlay layers (same as the
+        // Settings effects card): fx.toggle only flips a body class, but the CRT
+        // beam (ZGui.crt) and neon glow (ZGui.neonGlow) are separate layers — so
+        // without this, "scanlines"/"glow" never visibly turned off from ⌘K.
+        if (name === 'scanlines' && crtCtl && crtCtl.set) crtCtl.set(on);
+        if (name === 'glow' && ZGui.neonGlow && ZGui.neonGlow.set) ZGui.neonGlow.set(on);
+        mirrorUi();
+      } catch (e) {} } }; }
       var SCHEMES = [['cyberpunk', 'Cyberpunk'], ['midnight', 'Midnight'], ['matrix', 'Matrix'], ['ember', 'Ember'], ['arctic', 'Arctic'], ['crimson', 'Crimson'], ['toxic', 'Toxic'], ['vapor', 'Vapor']];
       var hudCmds = [
         { icon: '◐', label: 'Toggle light mode  (' + (isLight() ? 'on' : 'off') + ')', hint: 'setting', run: function () { try { if (ZGui.colorscheme && ZGui.colorscheme.setLight) { ZGui.colorscheme.setLight(!isLight()); mirrorUi(); } } catch (e) {} } },
@@ -303,8 +313,7 @@
         fxCmd('vignette', 'Toggle bezel vignette', '▣'),
         fxCmd('glow', 'Toggle neon glow', '✦'),
         fxCmd('anim', 'Toggle animations', '⚡'),
-        { icon: '▭', label: 'Toggle HUD statusbar', hint: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; chrome.storage.local.set({ zb_status: !!(o && o.zb_status === false) }); }); } catch (e) {} } },
-        { icon: '▤', label: 'Toggle tmux/session status bar', hint: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} } },
+        { icon: '▤', label: 'Toggle status bar (tmux/session powerline)', hint: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} } },
         { icon: '⚙', label: 'Open Settings page', hint: 'setting', run: function () { go('settings.html'); } }
       ].concat(SCHEMES.map(function (s) {
         return { icon: '◈', label: 'Scheme: ' + s[1], hint: 'theme', run: function () { try { if (ZGui.colorscheme && ZGui.colorscheme.apply) ZGui.colorscheme.apply(s[0]); } catch (e) {} } };

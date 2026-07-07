@@ -187,6 +187,14 @@
       else if (d.pasteText != null) insertText(d.pasteText);
       else if (d.syncapply) applyKey(d.syncapply);
     });
+    // Pull our sync membership from the parent on (re)load. The parent also pushes
+    // setSync on our iframe's 'load' event, but that races this content script's
+    // setup — it runs at document_idle, usually AFTER load fires, so the push is
+    // missed and pSync stays false: the pane keeps RECEIVING keystrokes but stops
+    // BROADCASTING its own (incl. C-w/C-u) after a navigation. Asking here is
+    // race-free — we request only once our own listener exists, and the top frame
+    // always has its listener up.
+    up({ syncReq: 1 });
     function setNative(el, v) { try { var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value'); if (d && d.set) { d.set.call(el, v); return; } } catch (e) {} el.value = v; }
     function insertText(text) {
       var el = document.activeElement; if (!editable(el)) el = (lastField && lastField.isConnected && editable(lastField)) ? lastField : null; if (!el) return;
@@ -938,6 +946,10 @@
     else if (d.cmdKey) { armed = false; exec(d.cmdKey, { ctrl: d.ctrl, alt: d.alt }); }
     else if (d.palette) { try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} }
     else if (d.synckey) { relaySync(ev.source, d.synckey); }
+    else if (d.syncReq) {   // a (re)loaded pane asking for its current sync membership
+      var w = W(), sid = sourceLeafId(ev.source);
+      if (sid) { try { ev.source.postMessage({ __zbtmux: 1, setSync: paneSynced(w, sid) }, '*'); } catch (e) {} }
+    }
     else if (d.yank) { pushBuffer(d.yank, d.append); }
   });
 

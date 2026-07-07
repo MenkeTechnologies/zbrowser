@@ -148,10 +148,15 @@
     // re-render so the toggles reflect it. Without this the switch went stale.
     try {
       chrome.storage.onChanged.addListener(function (ch, area) {
-        if (area !== 'local' || !ch.zb_ui) return;
-        var ui = ch.zb_ui.newValue || {};
-        try { if (ZGui.colorscheme && ZGui.colorscheme.setLight && typeof ui.light === 'boolean' && ZGui.colorscheme.isLight() !== ui.light) ZGui.colorscheme.setLight(ui.light); } catch (e) {}
-        try { if (ZGui.fx && ZGui.fx.set) ['scanlines', 'vignette', 'glow', 'anim'].forEach(function (n) { if (typeof ui[n] === 'boolean' && ZGui.fx.get(n) !== ui[n]) ZGui.fx.set(n, ui[n]); }); } catch (e) {}
+        // zb_status (tmux/session status-bar flag) also drives a switch here, so a
+        // ⌘K toggle or `:set status off` must re-render this page too — otherwise
+        // the Settings switch drifts out of sync with the palette / status bar.
+        if (area !== 'local' || (!ch.zb_ui && !ch.zb_status)) return;
+        if (ch.zb_ui) {
+          var ui = ch.zb_ui.newValue || {};
+          try { if (ZGui.colorscheme && ZGui.colorscheme.setLight && typeof ui.light === 'boolean' && ZGui.colorscheme.isLight() !== ui.light) ZGui.colorscheme.setLight(ui.light); } catch (e) {}
+          try { if (ZGui.fx && ZGui.fx.set) ['scanlines', 'vignette', 'glow', 'anim'].forEach(function (n) { if (typeof ui[n] === 'boolean' && ZGui.fx.get(n) !== ui[n]) ZGui.fx.set(n, ui[n]); }); } catch (e) {}
+        }
         render();
       });
     } catch (e) {}

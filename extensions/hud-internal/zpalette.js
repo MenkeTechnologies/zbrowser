@@ -170,8 +170,7 @@
       { icon: '▣', label: 'Toggle bezel vignette', detail: 'setting', run: function () { toggleUi('vignette'); } },
       { icon: '✦', label: 'Toggle neon glow', detail: 'setting', run: function () { toggleUi('glow'); } },
       { icon: '⚡', label: 'Toggle animations', detail: 'setting', run: function () { toggleUi('anim'); } },
-      { icon: '▭', label: 'Toggle HUD statusbar', run: function () { try { chrome.storage.local.get('zb_status', function (o) { var on = !(o && o.zb_status === false); chrome.storage.local.set({ zb_status: !on }); }); } catch (e) {} } },
-      { icon: '▤', label: 'Toggle tmux/session status bar', detail: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} } }
+      { icon: '▤', label: 'Toggle status bar (tmux/session powerline)', detail: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} } }
     ];
   }
   // Settings live in chrome.storage 'zb_ui' (mirrored from the HUD settings) so a
