@@ -170,12 +170,13 @@
       { icon: '▣', label: 'Toggle bezel vignette', detail: 'setting', run: function () { toggleUi('vignette'); } },
       { icon: '✦', label: 'Toggle neon glow', detail: 'setting', run: function () { toggleUi('glow'); } },
       { icon: '⚡', label: 'Toggle animations', detail: 'setting', run: function () { toggleUi('anim'); } },
-      { icon: '▭', label: 'Toggle HUD statusbar', run: function () { try { chrome.storage.local.get('zb_status', function (o) { var on = !(o && o.zb_status === false); chrome.storage.local.set({ zb_status: !on }); }); } catch (e) {} } }
+      { icon: '▭', label: 'Toggle HUD statusbar', run: function () { try { chrome.storage.local.get('zb_status', function (o) { var on = !(o && o.zb_status === false); chrome.storage.local.set({ zb_status: !on }); }); } catch (e) {} } },
+      { icon: '▤', label: 'Toggle tmux/session status bar', detail: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} } }
     ];
   }
   // Settings live in chrome.storage 'zb_ui' (mirrored from the HUD settings) so a
   // content-script palette can flip them; theme.js/newtab react via onChanged.
-  function toggleUi(key) { try { chrome.storage.local.get('zb_ui', function (o) { void chrome.runtime.lastError; var ui = (o && o.zb_ui) || {}; ui[key] = !ui[key]; chrome.storage.local.set({ zb_ui: ui }); }); } catch (e) {} }
+  function toggleUi(key) { try { chrome.storage.local.get('zb_ui', function (o) { void chrome.runtime.lastError; var ui = (o && o.zb_ui) || {}; ui[key] = (key === 'light') ? !ui.light : (ui[key] === false); chrome.storage.local.set({ zb_ui: ui }); }); } catch (e) {} }
 
   // Keyword web-search registry + provider now live in the SHARED palette-cmds.js
   // (ZWIRE_PALETTE_CMDS) so the HUD palette and the New Tab palette stay identical.

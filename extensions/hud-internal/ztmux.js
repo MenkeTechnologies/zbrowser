@@ -833,6 +833,11 @@
   }
   try { chrome.storage.local.get(SESSIONS_KEY, function (o) { void chrome.runtime.lastError; loadSessHotkeys(o && o[SESSIONS_KEY]); }); } catch (e) {}
   try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch[SESSIONS_KEY]) loadSessHotkeys(ch[SESSIONS_KEY].newValue); }); } catch (e) {}
+  // When the powerline/session statusbar (zstatus.js, zb_status) is hidden, the
+  // tmux overlay reclaims the 22px it normally reserves for it at the bottom.
+  function applyStatusReserve(vis) { try { if (root) root.style.bottom = vis ? '' : '0'; } catch (e) {} }
+  try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; applyStatusReserve(!(o && o.zb_status === false)); }); } catch (e) {}
+  try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_status) applyStatusReserve(!(ch.zb_status.newValue === false)); }); } catch (e) {}
   function sessionSnapshot() {
     return S.windows.map(function (win) {
       return { name: win.name || '', panes: leaves(win.tree).map(function (l) { return { url: l.url || '', title: l.title || '' }; }) };
@@ -1112,7 +1117,6 @@
     'send-prefix': 'just type into the focused web pane',
     'list-commands': 'press Tab here to list available commands',
     'list-clients': 'zwire tmux is per-tab — there are no separate clients',
-    'set-option': "options aren't set via CLI (panes are web pages)",
     'show-options': "options aren't set via CLI",
     'show-environment': 'no shell environment in a web pane',
     'customize-mode': 'use the Keyboard settings page',
@@ -1258,8 +1262,16 @@
       case 'display-message': flashMsg(rest || ''); return null;
       case 'detach-client': open = false; break;
       /* synchronize-panes (the one window option that applies) */
-      case 'synchronize-panes': case 'set-window-option': {
-        if (cmd === 'set-window-option' && !/synchronize-panes/.test(rest)) return 'set-window-option: only synchronize-panes applies (panes are web pages)';
+      case 'set-option': case 'synchronize-panes': case 'set-window-option': {
+        // status line on/off/toggle — hides the powerline/session statusbar (tmux `set status off`).
+        if (cmd !== 'synchronize-panes' && /\bstatus\b/.test(rest)) {
+          if (/\boff\b/.test(rest)) { try { chrome.storage.local.set({ zb_status: false }); } catch (e) {} }
+          else if (/\bon\b/.test(rest)) { try { chrome.storage.local.set({ zb_status: true }); } catch (e) {} }
+          else { try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} }
+          return null;
+        }
+        if (cmd === 'set-option') return 'set-option: `status on|off` (other options are N/A — panes are web pages)';
+        if (cmd === 'set-window-option' && !/synchronize-panes/.test(rest)) return 'set-window-option: only synchronize-panes / status applies (panes are web pages)';
         var w = W(), ls = leaves(w.tree), on = /\bon\b/.test(rest), off = /\boff\b/.test(rest);
         if (on || off) { w.syncPanes = on ? ls.map(function (l) { return l.id; }) : []; broadcastSync(w); break; }
         toggleSync(); break; }

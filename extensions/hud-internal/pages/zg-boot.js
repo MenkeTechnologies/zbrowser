@@ -260,6 +260,7 @@
         fxCmd('glow', 'Toggle neon glow', '✦'),
         fxCmd('anim', 'Toggle animations', '⚡'),
         { icon: '▭', label: 'Toggle HUD statusbar', hint: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; chrome.storage.local.set({ zb_status: !!(o && o.zb_status === false) }); }); } catch (e) {} } },
+        { icon: '▤', label: 'Toggle tmux/session status bar', hint: 'setting', run: function () { try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; chrome.storage.local.set({ zb_status: (o && o.zb_status === false) }); }); } catch (e) {} } },
         { icon: '⚙', label: 'Open Settings page', hint: 'setting', run: function () { go('settings.html'); } }
       ].concat(SCHEMES.map(function (s) {
         return { icon: '◈', label: 'Scheme: ' + s[1], hint: 'theme', run: function () { try { if (ZGui.colorscheme && ZGui.colorscheme.apply) ZGui.colorscheme.apply(s[0]); } catch (e) {} } };

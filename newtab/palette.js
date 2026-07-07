@@ -99,7 +99,18 @@
   // no-op. Ask the HUD (the source of truth) to toggle it — it fans the change
   // out to every surface (native file → our scheme-sync, content scripts, zpwr).
   var HUD_ID_UI = 'omcgnnjfmbmpdlofklbpddkhnfibfhgg';
-  function toggleUi(key) { try { chrome.runtime.sendMessage(HUD_ID_UI, { type: 'zb-ui-toggle', key: key }, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+  function toggleUi(key) {
+    // Light mode renders on newtab purely via [data-theme]; flip it OPTIMISTICALLY
+    // for instant feedback, then tell the HUD the TARGET value (not a blind flip)
+    // so every surface converges to the same state and the HUD echo confirms it.
+    if (key === 'light') {
+      var nw = document.documentElement.getAttribute('data-theme') !== 'light';
+      document.documentElement.setAttribute('data-theme', nw ? 'light' : 'dark');
+      try { chrome.runtime.sendMessage(HUD_ID_UI, { type: 'zb-ui-set-key', key: 'light', value: nw }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      return;
+    }
+    try { chrome.runtime.sendMessage(HUD_ID_UI, { type: 'zb-ui-toggle', key: key }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+  }
   var UI_TOGGLES = [['◐', 'Toggle light mode', 'light'], ['⌂', 'Toggle CRT scanlines', 'scanlines'],
     ['▣', 'Toggle bezel vignette', 'vignette'], ['✦', 'Toggle neon glow', 'glow'], ['⚡', 'Toggle animations', 'anim']];
 

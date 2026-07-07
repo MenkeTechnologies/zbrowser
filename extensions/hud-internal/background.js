@@ -69,7 +69,19 @@ try {
     // newtab palette flips a light/fx setting — newtab's storage is isolated, so
     // it toggles HERE (the source of truth), which fans out to every surface.
     if (msg.type === 'zb-ui-toggle' && msg.key) {
-      try { chrome.storage.local.get('zb_ui', function (o) { void chrome.runtime.lastError; var ui = (o && o.zb_ui) || {}; ui[msg.key] = !ui[msg.key]; chrome.storage.local.set({ zb_ui: ui }); }); } catch (e) {}
+      try {
+        chrome.storage.local.get('zb_ui', function (o) {
+          void chrome.runtime.lastError; var ui = (o && o.zb_ui) || {};
+          // light defaults OFF (undefined ⇒ dark); fx default ON (undefined ⇒ effect
+          // present), so a fresh key must flip to the OPPOSITE of its default.
+          ui[msg.key] = (msg.key === 'light') ? !ui.light : (ui[msg.key] === false);
+          chrome.storage.local.set({ zb_ui: ui });
+        });
+      } catch (e) {}
+    }
+    // Value-based set (newtab flips light optimistically, then sets the target).
+    if (msg.type === 'zb-ui-set-key' && msg.key && typeof msg.value === 'boolean') {
+      try { chrome.storage.local.get('zb_ui', function (o) { void chrome.runtime.lastError; var ui = (o && o.zb_ui) || {}; ui[msg.key] = msg.value; chrome.storage.local.set({ zb_ui: ui }); }); } catch (e) {}
     }
   });
 } catch (e) {}

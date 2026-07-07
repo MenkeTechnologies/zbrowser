@@ -59,6 +59,15 @@
       if (name === 'glow' && ZGui.neonGlow) { try { ZGui.neonGlow.set(on); } catch (e) {} }
       publishUi();
     } }));
+    // tmux/session status bar = the powerline (zstatus.js, zb_status). One flag,
+    // so this Settings switch stays in sync with the ⌘K "Toggle …status bar".
+    if (ZGui.toggle) {
+      var tsRow = el('label', 'xt-switch full');
+      tsRow.appendChild(el('span', null, 'tmux / session status bar (powerline)'));
+      var tsT = ZGui.toggle({ checked: true, onChange: function (on) { try { chrome.storage.local.set({ zb_status: on }); } catch (e) {} } });
+      tsRow.appendChild(tsT.el); inner.appendChild(tsRow);
+      try { chrome.storage.local.get('zb_status', function (o) { void chrome.runtime.lastError; var inp = tsRow.querySelector('input[type=checkbox]'); if (inp) inp.checked = !(o && o.zb_status === false); }); } catch (e) {}
+    }
     // seed the native file from local state ONCE (render() re-runs per keystroke).
     if (!uiSeeded) { uiSeeded = true; publishUi(); }
     return ZGui.card({ body: inner }).el;
