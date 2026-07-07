@@ -154,8 +154,14 @@
         if (area !== 'local' || (!ch.zb_ui && !ch.zb_status)) return;
         if (ch.zb_ui) {
           var ui = ch.zb_ui.newValue || {};
-          try { if (ZGui.colorscheme && ZGui.colorscheme.setLight && typeof ui.light === 'boolean' && ZGui.colorscheme.isLight() !== ui.light) ZGui.colorscheme.setLight(ui.light); } catch (e) {}
-          try { if (ZGui.fx && ZGui.fx.set) ['scanlines', 'vignette', 'glow', 'anim'].forEach(function (n) { if (typeof ui[n] === 'boolean' && ZGui.fx.get(n) !== ui[n]) ZGui.fx.set(n, ui[n]); }); } catch (e) {}
+          // Reacting to an externally-changed value: guard so the setLight-driven
+          // onApply (zg-boot) doesn't republish it back out — that republish is
+          // what made a light/dark reconcile flash-loop between surfaces forever.
+          window.__zbApplyingExternal = true;
+          try {
+            try { if (ZGui.colorscheme && ZGui.colorscheme.setLight && typeof ui.light === 'boolean' && ZGui.colorscheme.isLight() !== ui.light) ZGui.colorscheme.setLight(ui.light); } catch (e) {}
+            try { if (ZGui.fx && ZGui.fx.set) ['scanlines', 'vignette', 'glow', 'anim'].forEach(function (n) { if (typeof ui[n] === 'boolean' && ZGui.fx.get(n) !== ui[n]) ZGui.fx.set(n, ui[n]); }); } catch (e) {}
+          } finally { window.__zbApplyingExternal = false; }
         }
         render();
       });

@@ -41,6 +41,7 @@
     var list = el('div', 'info-list');
     rows.forEach(function (r) {
       var row = el('div', 'info-row');
+      if (r[0]) row.setAttribute('data-k', r[0]);   // so async host facts can refine a row in place
       row.appendChild(el('span', 'ik', esc(r[0])));
       row.appendChild(el('span', 'iv', r[2] ? r[1] : esc(r[1])));   // r[2]=true -> r[1] is trusted HTML
       list.appendChild(row);
@@ -67,7 +68,9 @@
     ['Rebrand', 'runtime — zwire name + cyberpunk icon over a pinned Chromium; optional source fork (fork/patches) takes the HUD into tab shapes / omnibox / colors'],
     ['Native host', 'zwire-host — one self-contained Rust binary (scheme bridge · system stats · PTY terminal), cross-platform, no Python'],
     ['Install', 'macOS .app · Linux ~/.local + .desktop · Windows %LOCALAPPDATA% + Start Menu'],
-    ['Profile', '~/.zwire/profile'],
+    // zwire stores its profile in the OS app-data dir (scripts/state-dir.sh), NOT
+    // a dotdir — ~ shown here, refined to the absolute path by the host below.
+    ['Profile', (/Mac|Darwin/i.test(nav.platform || ua) ? '~/Library/Application Support/zwire/profile' : '~/.config/zwire/profile')],
     ['Scheme file', '~/.zwire/hud-scheme']
   ]);
 
@@ -123,4 +126,28 @@
   var brands = nav.userAgentData && nav.userAgentData.brands;
   if (brands && brands.length) envRows.splice(1, 0, ['Brands', brands.map(function (b) { return b.brand + ' ' + b.version; }).join(' · ')]);
   card('ENVIRONMENT', envRows);
+
+  /* Real machine facts from the native host. nav.deviceMemory is quantized and
+     CAPPED at 8 GB by Chrome (so a 32 GB box reads wrong); the absolute profile
+     path is only known host-side. Refine those rows in place once the host answers. */
+  try {
+    chrome.runtime.sendNativeMessage(HOST, { cmd: 'hostinfo' }, function (h) {
+      if (chrome.runtime.lastError || !h || !h.ok) return;
+      var put = function (k, v) {
+        var cell = body.querySelector('.info-row[data-k="' + k + '"] .iv');
+        if (cell && v != null && v !== '') cell.textContent = v;
+      };
+      if (h.mem_total) {                                   // bytes (sysinfo 0.33)
+        var gb = h.mem_total / 1073741824;
+        put('Device memory', (gb >= 10 ? Math.round(gb) : gb.toFixed(1)) + ' GB');
+      }
+      if (h.home) {                                        // real absolute profile path
+        var st = h.os === 'macos' ? h.home + '/Library/Application Support/zwire'
+               : h.os === 'windows' ? h.home + '\\AppData\\Local\\zwire'
+               : h.home + '/.config/zwire';
+        put('Profile', st + (h.os === 'windows' ? '\\profile' : '/profile'));
+      }
+      if (h.cpus) put('CPU cores', String(h.cpus));        // authoritative core count
+    });
+  } catch (e) {}
 })();

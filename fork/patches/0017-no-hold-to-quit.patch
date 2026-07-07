@@ -1,0 +1,21 @@
+diff --git a/chrome/browser/app_controller_mac.mm b/chrome/browser/app_controller_mac.mm
+index 9f3d527596..629a8080b6 100644
+--- a/chrome/browser/app_controller_mac.mm
++++ b/chrome/browser/app_controller_mac.mm
+@@ -1006,9 +1006,13 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer,
+     return YES;
+   }
+ 
+-  // Check if the preference is turned on.
+-  const PrefService* prefs = g_browser_process->local_state();
+-  if (!prefs->GetBoolean(prefs::kConfirmToQuitEnabled)) {
++  // zwire: hold-⌘Q-to-quit is always OFF in the fork. ⌘Q quits immediately,
++  // regardless of the kConfirmToQuitEnabled pref — a synced/imported profile can
++  // flip that pref back on (the "hold to quit came back" regression), so ignore
++  // it entirely. Held as a const so the (now unreachable) confirm-panel tail is
++  // suppressed by clang as a configuration-value branch rather than -Werror'd.
++  const bool zwire_confirm_to_quit = false;
++  if (!zwire_confirm_to_quit) {
+     confirm_quit::RecordHistogram(confirm_quit::kNoConfirm);
+     return YES;
+   }

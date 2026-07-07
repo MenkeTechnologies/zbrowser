@@ -1,8 +1,8 @@
 diff --git a/chrome/browser/ui/views/tabs/tab_style_views.cc b/chrome/browser/ui/views/tabs/tab_style_views.cc
-index 30286417f7..66d934f743 100644
+index 44a60df681..b979c2274d 100644
 --- a/chrome/browser/ui/views/tabs/tab_style_views.cc
 +++ b/chrome/browser/ui/views/tabs/tab_style_views.cc
-@@ -304,16 +304,27 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
+@@ -302,16 +302,27 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
        }
      }
  
@@ -39,7 +39,7 @@ index 30286417f7..66d934f743 100644
  
      // Convert path to be relative to the tab origin.
      gfx::PointF origin(tab()->origin());
-@@ -391,6 +402,13 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
+@@ -389,6 +400,13 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
    const int kMaxPathPoints = 20;
    path.incReserve(kMaxPathPoints);
  
@@ -53,21 +53,50 @@ index 30286417f7..66d934f743 100644
    // We will go clockwise from the lower left. We start in the overlap region,
    // preventing a gap between toolbar and tabstrip.
    // TODO(dfried): verify that the we actually want to start the stroke for
-@@ -428,39 +446,28 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
-         SkPathBuilder::kSmall_ArcSize, SkPathDirection::kCCW,
-         SkPoint(tab_left, tab_bottom - left_extension_corner_radius));
- 
+@@ -401,81 +419,32 @@ SkPath TabStyleViewsImpl::GetPath(TabStyle::PathType path_type,
+     // Start with the top left side of the shape.
+     path.moveTo(left, tab_top);
+   } else {
+-    // Start with the left side of the shape.
+-    path.moveTo(left, extended_bottom);
+-
+-    // Draw the left edge of the extension.
+-    //   ╭─────────╮
+-    //   │ Content │
+-    // ┏─╯         ╰─┐
+-    if (tab_bottom != extended_bottom) {
+-      if (flags.should_paint_extension) {
+-        path.lineTo(left, tab_bottom);
+-      } else {
+-        path.moveTo(left, tab_bottom);
+-      }
+-    }
+-
+-    // Draw the bottom-left corner.
+-    //   ╭─────────╮
+-    //   │ Content │
+-    // ┌━╝         ╰─┐
+-    path.lineTo(tab_left - left_extension_corner_radius, tab_bottom);
+-    path.arcTo(
+-        SkVector(left_extension_corner_radius, left_extension_corner_radius), 0,
+-        SkPathBuilder::kSmall_ArcSize, SkPathDirection::kCCW,
+-        SkPoint(tab_left, tab_bottom - left_extension_corner_radius));
+-
 -    // Draw the ascender and top-left curve.
 -    //   ╔─────────╮
 -    //   ┃ Content │
-+    // zwire HUD: diagonal left side up to the inset top-left corner.
-+    //   ╱─────────╮
-+    //  ╱ Content  │
-     // ┌─╯         ╰─┐
+-    // ┌─╯         ╰─┐
 -    path.lineTo(tab_left, tab_top + top_left_corner_radius);
 -    path.arcTo(SkVector(top_left_corner_radius, top_left_corner_radius), 0,
 -               SkPathBuilder::kSmall_ArcSize, SkPathDirection::kCW,
 -               SkPoint(tab_left + top_left_corner_radius, tab_top));
++    // zwire HUD: hard trapezoid — the ACTIVE tab must match the inactive
++    // trapezoids (no rounded "feet"). Sharp bottom-left corner at tab_left with a
++    // straight vertical drop into the toolbar overlap (extended_bottom), then the
++    // sloped left side up to the inset top. The old rounded extension corner is
++    // what made the active tab look curvy.
++    (void)left_extension_corner_radius;
++    path.moveTo(tab_left, tab_bottom);
 +    path.lineTo(tab_left + hud_slope, tab_top);
    }
  
@@ -89,10 +118,7 @@ index 30286417f7..66d934f743 100644
 -    // Draw the top-right curve.
 -    //   ╭─────────╗
 -    //   │ Content │
-+    // zwire HUD: diagonal right side down to the bottom-right corner.
-+    //   ┌─────────┐
-+    //   │ Content  ╲
-     // ┌─╯         ╰─┐
+-    // ┌─╯         ╰─┐
 -    path.arcTo(SkVector(top_right_corner_radius, top_right_corner_radius), 0,
 -               SkPathBuilder::kSmall_ArcSize, SkPathDirection::kCW,
 -               SkPoint(tab_right, tab_top + top_right_corner_radius));
@@ -101,6 +127,28 @@ index 30286417f7..66d934f743 100644
 -    //   ╭─────────╮
 -    //   │ Content ┃
 -    // ┌─╯         ╚━┐
-     path.lineTo(tab_right, tab_bottom - extension_corner_radius);
-     path.arcTo(SkVector(extension_corner_radius, extension_corner_radius), 0,
-                SkPathBuilder::kSmall_ArcSize, SkPathDirection::kCCW,
+-    path.lineTo(tab_right, tab_bottom - extension_corner_radius);
+-    path.arcTo(SkVector(extension_corner_radius, extension_corner_radius), 0,
+-               SkPathBuilder::kSmall_ArcSize, SkPathDirection::kCCW,
+-               SkPoint(tab_right + extension_corner_radius, tab_bottom));
+-    if (tab_bottom != extended_bottom) {
+-      path.lineTo(right, tab_bottom);
+-    }
+-
+-    // Draw anything remaining: the descender, the bottom right horizontal
+-    // stroke, or the right edge of the extension, depending on which
+-    // conditions fired above.
+-    //   ╭─────────╮
+-    //   │ Content │
+-    // ┌─╯         ╰─┓
+-    if (flags.should_paint_extension) {
+-      path.lineTo(right, extended_bottom);
+-    }
++    // zwire HUD: sloped right side down to the sharp bottom-right corner at
++    // tab_right, then a straight vertical drop into the toolbar overlap — no
++    // rounded/extended foot, so the active tab is a hard trapezoid.
++    (void)extension_corner_radius;
++    path.lineTo(tab_right, tab_bottom);
+   }
+ 
+   if (path_type != TabStyle::PathType::kBorder) {

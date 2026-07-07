@@ -164,7 +164,12 @@
     // any pick in the shell settings (or a custom scheme) -> native + storage.
     ZGui.colorscheme.onApply(function (name) {
       currentScheme = name;
-      if (applyingExternal) return;                 // echo from load/poll, don't re-write
+      // Suppress the re-publish when this apply is REACTING to an externally
+      // received value (scheme pull, or a light/fx reconcile from zb_ui on this
+      // OR another page — settings.js sets window.__zbApplyingExternal around its
+      // setLight). Re-publishing a value we just received is what turned a
+      // light/dark reconcile into an infinite flash loop between surfaces.
+      if (applyingExternal || window.__zbApplyingExternal) return;
       try { chrome.runtime.sendNativeMessage(HOST, { scheme: name }, function () { void chrome.runtime.lastError; }); } catch (e) {}
       try { chrome.storage.local.set({ zb_scheme: name }); } catch (e) {}
       // setLight() re-applies the scheme, so onApply ALSO fires on a light/dark
@@ -258,8 +263,12 @@
     try {
       chrome.storage.local.get('zb_ui', function (o) {
         void chrome.runtime.lastError; var ui = (o && o.zb_ui) || {}, cs = window.ZGui && ZGui.colorscheme, fx = window.ZGui && ZGui.fx;
-        try { if (cs && cs.setLight && typeof ui.light === 'boolean' && cs.isLight() !== ui.light) cs.setLight(ui.light); } catch (e) {}
-        try { if (fx && fx.set) ['scanlines', 'vignette', 'glow', 'anim'].forEach(function (n) { if (typeof ui[n] === 'boolean' && fx.get(n) !== ui[n]) fx.set(n, ui[n]); }); } catch (e) {}
+        // Applying a RECEIVED value — guard so onApply doesn't republish it (loop).
+        window.__zbApplyingExternal = true;
+        try {
+          try { if (cs && cs.setLight && typeof ui.light === 'boolean' && cs.isLight() !== ui.light) cs.setLight(ui.light); } catch (e) {}
+          try { if (fx && fx.set) ['scanlines', 'vignette', 'glow', 'anim'].forEach(function (n) { if (typeof ui[n] === 'boolean' && fx.get(n) !== ui[n]) fx.set(n, ui[n]); }); } catch (e) {}
+        } finally { window.__zbApplyingExternal = false; }
         var out = {};
         try { if (cs && cs.isLight) out.light = !!cs.isLight(); } catch (e) {}
         try { if (fx && fx.all) { var a = fx.all(); out.scanlines = a.scanlines; out.vignette = a.vignette; out.glow = a.glow; out.anim = a.anim; } } catch (e) {}

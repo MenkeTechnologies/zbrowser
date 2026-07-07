@@ -1,5 +1,5 @@
 diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
-index f5874357cb..7cff07cc04 100644
+index 599797319f..a30293f43d 100644
 --- a/chrome/browser/ui/color/chrome_color_mixer.cc
 +++ b/chrome/browser/ui/color/chrome_color_mixer.cc
 @@ -6,6 +6,25 @@
@@ -126,17 +126,15 @@ index f5874357cb..7cff07cc04 100644
  // This differs from ui::SelectColorBasedOnInput in that we're checking if the
  // input transform is *not* dark under the assumption that the background color
  // *is* dark from a potential custom theme. Additionally, if the mode is
-@@ -1122,26 +1232,94 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
-   // high-contrast early-return above so it always applies. Palette mirrors
-   // docs/hud-static.css / newtab.css (cyberpunk scheme).
-   {
--    const SkColor kHudFrame = SkColorSetRGB(0x05, 0x05, 0x0a);   // --bg-primary
--    const SkColor kHudToolbar = SkColorSetRGB(0x0a, 0x0a, 0x14); // --bg-secondary
--    const SkColor kHudCard = SkColorSetRGB(0x0d, 0x0d, 0x1a);    // --bg-card
--    const SkColor kHudText = SkColorSetRGB(0xe0, 0xf0, 0xff);    // --text
--    const SkColor kHudTextDim = SkColorSetRGB(0x7a, 0x8b, 0xa8); // --text-dim
--    const SkColor kHudCyan = SkColorSetRGB(0x05, 0xd9, 0xe8);    // --cyan
--    const SkColor kHudBorder = SkColorSetRGB(0x1a, 0x1a, 0x3e);  // --border
+@@ -1117,6 +1227,101 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+   mixer[kColorReadAnythingFullPageScrollbarLowContrastDark] = {
+       SkColorSetRGB(0xC7, 0xC7, 0xC7)};
+ 
++  // zbrowser HUD: force the strykelang cyberpunk palette onto the native
++  // chrome, unconditionally (the HUD is always dark). Placed before the
++  // high-contrast early-return above so it always applies. Palette mirrors
++  // docs/hud-static.css / newtab.css (cyberpunk scheme).
++  {
 +    // Colors come from the ACTIVE strykelang scheme (picker-driven, live). No
 +    // hardcoded palette — cyberpunk defaults to the real near-black #05050a.
 +    EnsureHudSchemeWatcher();
@@ -154,29 +152,24 @@ index f5874357cb..7cff07cc04 100644
 +    const SkColor kHudPurple = hs.m;        // scheme's magenta/tertiary
 +    const SkColor kHudBorder = hs.b;
 +    // Frame / titlebar.
-     mixer[ui::kColorFrameActive] = {kHudFrame};
--    mixer[ui::kColorFrameInactive] = {kHudFrame};
++    mixer[ui::kColorFrameActive] = {kHudFrame};
 +    mixer[ui::kColorFrameInactive] = {kHudBlack};
 +    // Toolbar + bookmarks bar.
-     mixer[kColorToolbar] = {kHudToolbar};
-     mixer[kColorToolbarText] = {kHudText};
-     mixer[kColorToolbarButtonIcon] = {kHudCyan};
--    mixer[kColorToolbarContentAreaSeparator] = {kHudCyan};  // neon under-toolbar line
++    mixer[kColorToolbar] = {kHudToolbar};
++    mixer[kColorToolbarText] = {kHudText};
++    mixer[kColorToolbarButtonIcon] = {kHudCyan};
 +    mixer[kColorToolbarButtonIconHovered] = {kHudMagenta};
 +    mixer[kColorToolbarContentAreaSeparator] = {kHudMagenta};  // hot-pink under-toolbar line
-     mixer[kColorToolbarSeparator] = {kHudBorder};
++    mixer[kColorToolbarSeparator] = {kHudBorder};
 +    mixer[kColorToolbarButtonText] = {kHudCyan};
 +    // Omnibox / location bar.
-     mixer[kColorLocationBarBackground] = {kHudCard};
-     mixer[kColorLocationBarBorder] = {kHudCyan};
--    mixer[kColorTabBackgroundActiveFrameActive] = {kHudToolbar};
--    mixer[kColorTabBackgroundInactiveFrameActive] = {kHudFrame};
--    mixer[kColorTabForegroundActiveFrameActive] = {kHudCyan};
++    mixer[kColorLocationBarBackground] = {kHudCard};
++    mixer[kColorLocationBarBorder] = {kHudCyan};
 +    // Tabs — visible purple fills + a neon OUTLINE on every tab.
 +    mixer[kColorTabBackgroundActiveFrameActive] = {kHudTabActive};
 +    mixer[kColorTabBackgroundInactiveFrameActive] = {kHudTabInactive};
 +    mixer[kColorTabForegroundActiveFrameActive] = {kHudMagenta};   // hot-pink active tab text
-     mixer[kColorTabForegroundInactiveFrameActive] = {kHudTextDim};
++    mixer[kColorTabForegroundInactiveFrameActive] = {kHudTextDim};
 +    mixer[kColorTabStrokeFrameActive] = {kHudCyan};                // neon tab outline (focused)
 +    mixer[kColorTabStrokeFrameInactive] = {kHudPurple};            // neon tab outline (blurred)
 +    mixer[ui::kColorTabBorderSelected] = {kHudMagenta};
@@ -230,6 +223,83 @@ index f5874357cb..7cff07cc04 100644
 +    // New-tab page + its footer bar (the purple bottom strip).
 +    mixer[kColorNewTabPageBackground] = {kHudSurface};
 +    mixer[kColorNewTabFooterBackground] = {kHudFrame};
-   }
- 
++  }
++
    // Apply high contrast recipes if necessary.
+   if (!ShouldApplyHighContrastColors(key)) {
+     return;
+@@ -1132,3 +1337,42 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+   mixer[ui::kColorFrameActive] = {SK_ColorDKGRAY};
+   mixer[ui::kColorFrameInactive] = {SK_ColorGRAY};
+ }
++
++// zwire HUD final override. AddChromeColorMixer sets the tab wells from the HUD
++// palette, but the Material tab-strip mixer (AddMaterialTabStripColorMixer) and
++// the native chrome mixer run AFTER it and re-point the tab background at GM3
++// "Sys" tokens (kColorSysBase / kColorSysOnSurface) whose dynamic values ignore
++// the HUD palette — so the active tab paints a scheme-independent GM3 default
++// (the long-standing "always red" tab). Re-assert the tab colors DIRECTLY (not
++// via a Sys reference) from the active scheme in a mixer added dead-last, so the
++// HUD wins no matter how the upstream tab-strip mixers are ordered.
++void AddZwireHudFinalMixer(ui::ColorProvider* provider,
++                           const ui::ColorProviderKey& key) {
++  EnsureHudSchemeWatcher();
++  const HudScheme& hs = ActiveHudScheme();
++  ui::ColorMixer& mixer = provider->AddMixer();
++  // Tab wells — direct scheme colors (card bg for active, primary bg for rest).
++  mixer[kColorTabBackgroundActiveFrameActive] = {hs.c};
++  mixer[kColorTabBackgroundActiveFrameInactive] = {hs.c};
++  mixer[kColorTabBackgroundInactiveFrameActive] = {hs.p};
++  mixer[kColorTabBackgroundInactiveFrameInactive] = {hs.p};
++  mixer[kColorDetachedTabBackgroundActiveFrameActive] = {hs.c};
++  // Hover + selected tab wells — the Material tab-strip mixer points these at GM3
++  // "Sys" state tokens (kColorSysStateHeaderHover / …HeaderSelect) that ignore
++  // the HUD palette, so hovering an inactive tab flashed a GM3-default (red)
++  // background. Pin them to the scheme's hover/secondary bg.
++  mixer[kColorTabBackgroundInactiveHoverFrameActive] = {hs.h};
++  mixer[kColorTabBackgroundInactiveHoverFrameInactive] = {hs.h};
++  mixer[kColorTabBackgroundSelectedFrameActive] = {hs.s};
++  mixer[kColorTabBackgroundSelectedFrameInactive] = {hs.s};
++  mixer[kColorTabBackgroundSelectedHoverFrameActive] = {hs.h};
++  mixer[kColorTabBackgroundSelectedHoverFrameInactive] = {hs.h};
++  // Tab labels — accent on the active tab, dim text on the rest.
++  mixer[kColorTabForegroundActiveFrameActive] = {hs.a};
++  mixer[kColorTabForegroundActiveFrameInactive] = {hs.a};
++  mixer[kColorTabForegroundInactiveFrameActive] = {hs.td};
++  mixer[kColorTabForegroundInactiveFrameInactive] = {hs.td};
++  // Neon tab outline: cyan when focused, magenta when blurred.
++  mixer[kColorTabStrokeFrameActive] = {hs.cy};
++  mixer[kColorTabStrokeFrameInactive] = {hs.m};
++}
+diff --git a/chrome/browser/ui/color/chrome_color_mixer.h b/chrome/browser/ui/color/chrome_color_mixer.h
+index 99f282fb77..837c10f273 100644
+--- a/chrome/browser/ui/color/chrome_color_mixer.h
++++ b/chrome/browser/ui/color/chrome_color_mixer.h
+@@ -17,4 +17,11 @@ class ColorProvider;
+ void AddChromeColorMixer(ui::ColorProvider* provider,
+                          const ui::ColorProviderKey& key);
+ 
++// zwire HUD: re-asserts the tab colors from the active HUD scheme in a mixer
++// added dead-last, defeating the Material/native tab-strip mixers that would
++// otherwise paint the active tab a scheme-independent GM3 default ("always red"
++// tab). Must be called after every other chrome color mixer.
++void AddZwireHudFinalMixer(ui::ColorProvider* provider,
++                           const ui::ColorProviderKey& key);
++
+ #endif  // CHROME_BROWSER_UI_COLOR_CHROME_COLOR_MIXER_H_
+diff --git a/chrome/browser/ui/color/chrome_color_mixers.cc b/chrome/browser/ui/color/chrome_color_mixers.cc
+index 9dfe5e7cd5..d93eb8e99a 100644
+--- a/chrome/browser/ui/color/chrome_color_mixers.cc
++++ b/chrome/browser/ui/color/chrome_color_mixers.cc
+@@ -76,6 +76,11 @@ void AddChromeColorMixers(ui::ColorProvider* provider,
+   // Must be the last one in order to override other mixer colors.
+   AddNativeChromeColorMixer(provider, key);
+ 
++  // zwire HUD: truly last — re-assert the tab colors from the active scheme so
++  // the Material/native tab-strip mixers above can't leave the active tab a
++  // scheme-independent GM3 default (the "always red" tab).
++  AddZwireHudFinalMixer(provider, key);
++
+   if (key.custom_theme) {
+     key.custom_theme->AddColorMixers(provider, key);
+   }

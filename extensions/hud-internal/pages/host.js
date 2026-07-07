@@ -66,6 +66,69 @@
     var c = Z.card({ body: wrap }).el; body.appendChild(c); return c;
   }
 
+  /* --------------------- COMMAND LOG (all tx/rx) ------------------------- */
+  // Every command sent to zwire-host from ANY page/process, via the shared
+  // ~/.zwire/hostlog.jsonl the host appends to. Chrome spawns a separate host
+  // process per sendNativeMessage, so this shared file is the only place that
+  // sees them all. Polls the `hostlog` command (itself excluded from the log).
+  var clogStyle = el('style'); clogStyle.textContent = [
+    '.zh-clog{height:min(42vh,440px);overflow:auto;background:var(--bg-primary,#05060a);',
+    ' border:1px solid var(--border,#1a2233);border-radius:4px;padding:6px 8px;font:12px "Share Tech Mono",monospace;}',
+    '.zh-clr{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03);}',
+    '.zh-clt{color:var(--text-muted,#5a6b82);opacity:.7;flex:0 0 auto;}',
+    '.zh-cld{font-weight:700;flex:0 0 14px;}',
+    '.zh-clr.tx .zh-cld{color:var(--cyan,#05d9e8);} .zh-clr.rx .zh-cld{color:#3fff9f;}',
+    '.zh-clc{color:var(--accent,#ff2a6d);flex:0 0 90px;overflow:hidden;text-overflow:ellipsis;}',
+    '.zh-clm{color:var(--text,#c8d2e0);flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.zh-clog.hide-sys .zh-clr.sysrow{display:none;}',   // toggle: hide the high-frequency statusbar stream
+    '.zh-clbar{display:flex;align-items:center;gap:10px;margin:2px 0 6px;}',
+    '.zh-clbar .zh-sub{flex:1 1 auto;}'
+  ].join(''); document.head.appendChild(clogStyle);
+  var clogInner = el('div');
+  var clbar = el('div', 'zh-clbar');
+  clbar.appendChild(el('div', 'zh-sub', 'every command sent to zwire-host — ▶ tx (request) / ◀ rx (reply), from any page or process'));
+  var clog = el('div', 'zh-clog hide-sys');   // statusbar (sysinfo) stream hidden by default
+  if (ZGui.toggle) {
+    var tgWrap = el('div'); tgWrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    tgWrap.appendChild(el('span', 'zh-sub', 'show sysinfo'));
+    tgWrap.appendChild(ZGui.toggle({ checked: false, onChange: function (on) { clog.classList.toggle('hide-sys', !on); } }).el);
+    clbar.appendChild(tgWrap);
+  }
+  clogInner.appendChild(clbar);
+  clogInner.appendChild(clog);
+  card('COMMAND LOG', clogInner);
+  var clogKeys = new Set();
+  function fmtTime(ms) { var d = new Date(ms || 0); function p(n) { return (n < 10 ? '0' : '') + n; } return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
+  function renderClog(entries) {
+    if (!entries || !entries.length) return;
+    var atBottom = clog.scrollHeight - clog.scrollTop - clog.clientHeight < 40;
+    var frag = document.createDocumentFragment(), added = 0;
+    entries.forEach(function (e) {
+      var k = (e.t || 0) + '|' + (e.pid || 0) + '|' + (e.dir || '') + '|' + (e.cmd || '') + '|' + (e.msg || '');
+      if (clogKeys.has(k)) return;
+      clogKeys.add(k);
+      var row = el('div', 'zh-clr ' + (e.dir === 'rx' ? 'rx' : 'tx') + (e.cmd === 'sysinfo' ? ' sysrow' : ''));
+      row.appendChild(el('span', 'zh-clt', esc(fmtTime(e.t))));
+      row.appendChild(el('span', 'zh-cld', e.dir === 'rx' ? '◀' : '▶'));
+      row.appendChild(el('span', 'zh-clc', esc(e.cmd || '?')));
+      row.appendChild(el('span', 'zh-clm', esc(e.msg || '')));
+      frag.appendChild(row); added++;
+    });
+    if (added) { clog.appendChild(frag); if (atBottom) clog.scrollTop = clog.scrollHeight; }
+    while (clog.children.length > 1200) clog.removeChild(clog.firstChild);
+    if (clogKeys.size > 5000) clogKeys.clear();   // bounded; the ring file re-seeds the view
+  }
+  function pollClog() {
+    // Route over the SAME persistent connectNative port the STATUS/REPL panes
+    // use (proven channel); the reply comes back through onHostMsg (id zh-clog).
+    try {
+      if (!portOk && !connect()) return;
+      port.postMessage({ cmd: 'hostlog', limit: 300, _nolog: true, id: 'zh-clog' });
+    } catch (e) {}
+  }
+  setInterval(pollClog, 1200);
+  setTimeout(pollClog, 300);   // first poll after the port has a moment to open
+
   /* ------------------------------ STATUS --------------------------------- */
   var statusInner = el('div');
   statusInner.appendChild(el('div', 'zh-status', '<span class="zh-dot" style="background:#ffcf4a"></span><span class="zh-sub">connecting…</span>'));
@@ -213,6 +276,7 @@
   /* --------------------------- native port ------------------------------- */
   var port = null, portOk = false, seq = 0;
   function connect() {
+    if (portOk && port) return true;   // idempotent: the log poll may connect first
     try { port = chrome.runtime.connectNative(HOST); } catch (e) { setStatus('<span class="zh-dot" style="background:var(--accent,#ff2a6d)"></span><span class="zh-sub">unavailable — ' + esc(e.message) + '</span>'); return false; }
     portOk = true;
     port.onMessage.addListener(onHostMsg);
@@ -224,6 +288,7 @@
     return true;
   }
   function onHostMsg(m) {
+    if (m && m.id === 'zh-clog') { renderClog(m.log || []); return; }   // COMMAND LOG poll reply
     if (m && m.host === 'zwire-host') setStatusFromHello(m);
     if (m && m.sys) { renderSys(m.sys); return; }          // shown live above, kept out of the log
     if (m && m.id === 'zh-hello') return;                   // silent status probe
