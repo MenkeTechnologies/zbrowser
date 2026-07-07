@@ -126,7 +126,7 @@ index f5874357cb..7cff07cc04 100644
  // This differs from ui::SelectColorBasedOnInput in that we're checking if the
  // input transform is *not* dark under the assumption that the background color
  // *is* dark from a potential custom theme. Additionally, if the mode is
-@@ -1122,26 +1232,87 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
+@@ -1122,26 +1232,94 @@ void AddChromeColorMixer(ui::ColorProvider* provider,
    // high-contrast early-return above so it always applies. Palette mirrors
    // docs/hud-static.css / newtab.css (cyberpunk scheme).
    {
@@ -205,6 +205,13 @@ index f5874357cb..7cff07cc04 100644
 +    mixer[ui::kColorSysOnSurfaceSecondary] = {kHudTextDim};
 +    mixer[ui::kColorSysOnSurfaceVariant] = {kHudTextDim};
 +    mixer[ui::kColorSysPrimary] = {kHudCyan};              // toggles, links, focus
++    // Focus ring: the OMNIBOX border and the TAB focus rings BOTH resolve from
++    // kColorFocusableBorderFocused (LocationBarView's cascading accent +
++    // kColorTabFocusRing* via PickGoogleColorTwoBackgrounds). Left unset it fell
++    // back to the stock GM3 focus colour (a scheme-independent red) — bind it to
++    // the scheme so every focus indicator follows the active palette.
++    mixer[ui::kColorFocusableBorderFocused] = {kHudCyan};
++    mixer[ui::kColorSysStateFocusRing] = {kHudCyan};
 +    mixer[ui::kColorSysOnPrimary] = {kHudSurface};
 +    mixer[ui::kColorSysPrimaryContainer] = {kHudTabActive}; // selected nav item
 +    mixer[ui::kColorSysOnPrimaryContainer] = {kHudMagenta};
