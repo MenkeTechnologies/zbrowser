@@ -18,6 +18,18 @@
     return false;
   }
   function editable(el) { if (!el) return false; var t = el.tagName; return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || el.isContentEditable; }
+  // The field to write into: focused editable → last-focused → first editable in the
+  // page. The final fallback is what makes synchronize-panes work: a cross-origin pane
+  // iframe can't autofocus its input ("Blocked autofocusing … in a cross-origin
+  // subframe"), so a peer pane RECEIVING a synced keystroke has nothing focused yet.
+  function targetField() {
+    var el = document.activeElement;
+    if (editable(el)) return el;
+    if (lastField && lastField.isConnected && editable(lastField)) return lastField;
+    var f = document.querySelector('input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, [contenteditable=""], [contenteditable="true"]');
+    if (f) { lastField = f; return f; }
+    return null;
+  }
   function setNative(el, v) { try { var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value'); if (d && d.set) { d.set.call(el, v); return; } } catch (e) {} el.value = v; }
 
   document.addEventListener('focusin', function (e) { if (editable(e.target)) lastField = e.target; }, true);
@@ -26,7 +38,7 @@
   function copyEnter() { if (copyMode) return; copyMode = true; copyInd = document.createElement('div'); copyInd.textContent = '▨ COPY — j/k/d/u/g/G scroll · select · y/Enter yank · Esc'; copyInd.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#ff2a6d;color:#fff;padding:3px 10px;font:12px monospace;border-radius:3px;pointer-events:none;'; (document.body || document.documentElement).appendChild(copyInd); }
   function copyExit() { copyMode = false; if (copyInd) { try { copyInd.remove(); } catch (e) {} copyInd = null; } }
   function yankSel() { var s = (window.getSelection && String(window.getSelection())) || ''; if (s) up({ yank: s }); }
-  function insertText(text) { var el = document.activeElement; if (!editable(el)) el = (lastField && lastField.isConnected && editable(lastField)) ? lastField : null; if (!el) return; if ('value' in el) { var s = el.selectionStart, e2 = el.selectionEnd; if (s != null) { setNative(el, el.value.slice(0, s) + text + el.value.slice(e2)); try { el.selectionStart = el.selectionEnd = s + text.length; } catch (x) {} } else setNative(el, el.value + text); el.dispatchEvent(new Event('input', { bubbles: true })); } else { try { document.execCommand('insertText', false, text); } catch (x) {} } }
+  function insertText(text) { var el = targetField(); if (!el) return; if ('value' in el) { var s = el.selectionStart, e2 = el.selectionEnd; if (s != null) { setNative(el, el.value.slice(0, s) + text + el.value.slice(e2)); try { el.selectionStart = el.selectionEnd = s + text.length; } catch (x) {} } else setNative(el, el.value + text); el.dispatchEvent(new Event('input', { bubbles: true })); } else { try { document.execCommand('insertText', false, text); } catch (x) {} } }
   document.addEventListener('copy', function () { yankSel(); }, true);
   document.addEventListener('keydown', function (e) {
     if (copyMode) {
@@ -59,7 +71,10 @@
     if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault(); e.stopImmediatePropagation(); up({ palette: 1 }); return;
     }
-    if (sync && !e.ctrlKey && !e.metaKey && !e.altKey && editable(document.activeElement) &&
+    // synchronize-panes: always forward printable typing in an editable to the top
+    // frame; the top decides whether to broadcast (only if THIS pane is in the sync
+    // group). No dependency on receiving setSync first — that link was unreliable.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && editable(document.activeElement) &&
         (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace')) {
       up({ synckey: e.key });
     }
@@ -71,8 +86,7 @@
     if (d.copyMode) { copyEnter(); return; }
     if (d.pasteText != null) { insertText(d.pasteText); return; }
     if (d.syncapply) {
-      var el = document.activeElement;
-      if (!editable(el)) el = (lastField && lastField.isConnected && editable(lastField)) ? lastField : null;
+      var el = targetField();
       if (!el) return; var k = d.syncapply, hasVal = ('value' in el);
       if (k === 'Backspace') { if (hasVal) { setNative(el, el.value.slice(0, -1)); el.dispatchEvent(new Event('input', { bubbles: true })); } }
       else if (k === 'Enter') { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); if (el.form && typeof el.form.requestSubmit === 'function') { try { el.form.requestSubmit(); } catch (e) {} } }

@@ -60,6 +60,8 @@
       paneLabel: function (ref) { return hostLabel(ref && ref.url); },
       // pane ops for the cross-origin iframe model — postMessage into the pane's forwarder.
       applyKey: function (bodyEl, key) { postToPane(bodyEl, { syncapply: key }); },
+      setSync: function (bodyEl, on) { postToPane(bodyEl, { setSync: !!on }); },
+      setStatus: function (on) { try { chrome.storage.local.set({ zb_status: !!on }); } catch (e) {} },
       copyMode: function (bodyEl) { postToPane(bodyEl, { copyMode: true }); },
       paste: function (bodyEl, text) { postToPane(bodyEl, { pasteText: text }); }
     });
@@ -72,7 +74,8 @@
     else if (d.cmdKey) ZGui.tmux.key(d.cmdKey, { ctrl: d.ctrl, alt: d.alt });
     else if (d.palette) { try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} }
     else if (d.synckey) { var b = bodyOfSource(ev.source); if (b) ZGui.tmux.relaySync(b, d.synckey); }
-    else if (d.yank) ZGui.tmux.yank(d.yank);
+    else if (d.syncReq) { var bq = bodyOfSource(ev.source); if (bq && ZGui.tmux.syncOf) postToPane(bq, { setSync: ZGui.tmux.syncOf(bq) }); }
+    else if (d.yank) ZGui.tmux.yank(d.yank, d.append);
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

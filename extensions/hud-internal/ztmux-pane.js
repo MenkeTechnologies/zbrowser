@@ -169,11 +169,12 @@
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault(); e.stopImmediatePropagation(); up({ palette: 1 }); return;
       }
-      // Broadcast editable keystrokes to the other panes. Plain chars + Enter +
-      // Backspace forward as-is; the readline line-editing combos forward as
-      // semantic tokens so synchronize-panes covers them too: C-w kill word,
-      // C-u kill to line start, plus the macOS ⌥/⌘-Delete twins of each.
-      if (pSync && editable(document.activeElement)) {
+      // Broadcast editable keystrokes to the other panes. Always forward; the top
+      // frame gates on whether THIS pane is in the sync group (no dependency on
+      // receiving setSync first). Plain chars + Enter + Backspace forward as-is; the
+      // readline combos forward as semantic tokens: C-w kill word, C-u kill to line
+      // start, plus the macOS ⌥/⌘-Delete twins of each.
+      if (editable(document.activeElement)) {
         var mod = e.ctrlKey || e.metaKey || e.altKey;
         if (!mod && (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace')) up({ synckey: e.key });
         else if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'w' || e.key === 'W')) up({ synckey: 'C-w' });
@@ -198,15 +199,24 @@
     // always has its listener up.
     up({ syncReq: 1 });
     function setNative(el, v) { try { var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value'); if (d && d.set) { d.set.call(el, v); return; } } catch (e) {} el.value = v; }
+    // focused editable → last-focused → first editable in the page. The final fallback
+    // makes synchronize-panes land in a peer pane that was never focused (cross-origin
+    // subframes can't autofocus their inputs).
+    function targetField() {
+      var el = document.activeElement;
+      if (editable(el)) return el;
+      if (lastField && lastField.isConnected && editable(lastField)) return lastField;
+      var f = document.querySelector('input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, [contenteditable=""], [contenteditable="true"]');
+      if (f) { lastField = f; return f; }
+      return null;
+    }
     function insertText(text) {
-      var el = document.activeElement; if (!editable(el)) el = (lastField && lastField.isConnected && editable(lastField)) ? lastField : null; if (!el) return;
+      var el = targetField(); if (!el) return;
       if ('value' in el) { var s = el.selectionStart, e2 = el.selectionEnd; if (s != null) { setNative(el, el.value.slice(0, s) + text + el.value.slice(e2)); try { el.selectionStart = el.selectionEnd = s + text.length; } catch (x) {} } else setNative(el, el.value + text); el.dispatchEvent(new Event('input', { bubbles: true })); }
       else { try { document.execCommand('insertText', false, text); } catch (x) {} }
     }
     function applyKey(k) {
-      // target this pane's focused field, else the last one focused here.
-      var el = document.activeElement;
-      if (!editable(el)) el = (lastField && lastField.isConnected && editable(lastField)) ? lastField : null;
+      var el = targetField();
       if (!el) return; var hasVal = ('value' in el), focused = (document.activeElement === el);
       if (k === 'Backspace') { if (hasVal) { setNative(el, el.value.slice(0, -1)); el.dispatchEvent(new Event('input', { bubbles: true })); } else if (focused) { try { document.execCommand('delete'); } catch (e) {} } }
       else if (k === 'Enter') { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })); if (el.form && typeof el.form.requestSubmit === 'function') { try { el.form.requestSubmit(); } catch (e) {} } }
