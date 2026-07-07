@@ -175,7 +175,7 @@ fork/package.sh        ~/zwire-chromium/src/out/zwire
 ```
 
 All **15** HUD patches are **authored** against the pinned tag (`150.0.7871.46`)
-and verified apply-clean. The nine styling/behavior patches: sharp 2px tabs
+and verified apply-clean. The nine styling/behavior patches: hard trapezoid tabs
 (`tab_style_views.cc`), the cyberpunk palette + the 8 HUD schemes on
 frame/toolbar/tabs/omnibox (`chrome_color_mixer.cc`), the Share Tech Mono /
 Monaco UI font (`resource_bundle.cc`), a neon cyan under-toolbar line
