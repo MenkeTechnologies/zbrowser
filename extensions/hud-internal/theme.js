@@ -72,9 +72,13 @@
     '  --google-blue-600: var(--accent) !important;',
     '  color-scheme: dark;',
     '}',
-    'html, body, :host { background-color: var(--bg-primary) !important; color: var(--text) !important; }',
-    /* -webkit-text-fill-color overrides `color`; reset so text actually paints. */
-    ':not([class*="icon"]):not(cr-icon):not(iron-icon) { -webkit-text-fill-color: currentColor !important; }',
+    /* Modern WebUI pages (settings/extensions/history/…) are fully driven by the
+       remapped --color-sys-* / --cr-* tokens above, so they theme correctly with
+       NO blanket color/background override. We deliberately do NOT force
+       `html,body{color}` or `-webkit-text-fill-color:currentColor` globally — that
+       made legacy token-less pages (chrome://omnibox etc.) render light-on-light /
+       dark-on-dark and unreadable. Legacy pages get an explicit, readable dark
+       skin via PAGE_CSS[host] below instead. */
     'a[href]:not(.cr-nav-menu-item):not([role="menuitem"]):not([role="tab"]) { color: var(--cyan) !important; }',
     /* nav/menu items: always readable, never dark-on-dark. */
     '.cr-nav-menu-item, [role="menuitem"], cr-menu-selector a, extensions-sidebar a {' +
@@ -90,13 +94,50 @@
     ' .cr-title-text, .cr-secondary-text, .cr-padded-text { font-family: "Share Tech Mono","Monaco",monospace !important; }'
   ].join('\n');
 
+  // ── Per-chrome://-URL custom CSS ─────────────────────────────────────
+  // The token remap (MAP_CSS) themes MODERN WebUI pages. Legacy, token-less
+  // debug pages (chrome://omnibox, net-internals, tracing, …) need an explicit
+  // skin or they stay Chrome-default (or, with a blanket override, become
+  // unreadable). LEGACY_DARK forces a self-consistent dark theme with readable
+  // contrast: containers go transparent (so the dark body shows through, never
+  // light-on-light), text goes light, form controls get a dark field. Add a
+  // dedicated entry to PAGE_CSS for any page that needs bespoke tweaks.
+  var LEGACY_DARK = [
+    'html, body { background-color: var(--bg-primary) !important; color: var(--text) !important; }',
+    'table, thead, tbody, tr, th, td, div, span, p, section, article, fieldset, form,',
+    ' pre, code, label, li, ul, ol, h1, h2, h3, h4, h5, h6, dl, dt, dd, caption, legend, small, b, strong, em {',
+    '   background-color: transparent !important; color: var(--text) !important; border-color: var(--border) !important; }',
+    'th { background-color: var(--bg-secondary) !important; color: var(--cyan) !important; }',
+    'tr:nth-child(even) td { background-color: rgba(255,255,255,0.02) !important; }',
+    'input, textarea, select, button {',
+    '  background-color: var(--bg-secondary) !important; color: var(--text) !important;',
+    '  border: 1px solid var(--border) !important; }',
+    'input::placeholder, textarea::placeholder { color: var(--text-muted) !important; }',
+    'a, a:link, a:visited { color: var(--cyan) !important; }'
+  ].join('\n');
+
+  // chrome://<host> that are legacy/token-less and read best with LEGACY_DARK.
+  var LEGACY_HOSTS = ['omnibox', 'net-internals', 'net-export', 'net-export', 'histograms', 'tracing',
+    'device-log', 'discards', 'media-internals', 'media-engagement', 'webrtc-internals', 'webrtc-logs',
+    'gcm-internals', 'sync-internals', 'signin-internals', 'prefs-internals', 'quota-internals',
+    'indexeddb-internals', 'blob-internals', 'serviceworker-internals', 'process-internals',
+    'memory-internals', 'ukm', 'user-actions', 'autofill-internals', 'attribution-internals',
+    'site-engagement', 'predictors', 'translate-internals', 'topics-internals', 'usb-internals',
+    'bluetooth-internals', 'gpu', 'system', 'version', 'crashes', 'components', 'policy', 'dino',
+    'interstitials', 'network-errors', 'download-internals', 'metrics-internals', 'ntp-tiles-internals',
+    'app-service-internals', 'web-app-internals', 'suggest-internals', 'segmentation-internals'];
+  var PAGE_CSS = {};
+  LEGACY_HOSTS.forEach(function (h) { PAGE_CSS[h] = LEGACY_DARK; });
+
+  function pageCss() { try { return PAGE_CSS[location.host] || ''; } catch (e) { return ''; } }
+
   function injectInto(rootNode) {
     try {
       var host = (rootNode === document) ? (document.head || document.documentElement) : rootNode;
       if (!host || (host.querySelector && host.querySelector('style[data-zbtheme]'))) return;
       var st = document.createElement('style');
       st.setAttribute('data-zbtheme', '1');
-      st.textContent = MAP_CSS;
+      st.textContent = MAP_CSS + '\n' + pageCss();
       host.appendChild(st);
     } catch (e) {}
   }
