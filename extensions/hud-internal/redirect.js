@@ -12,6 +12,12 @@
     ['chrome://version', 'pages/version.html']
   ];
   var here = location.href;
+  // About / help isn't a pref surface — route it to the HUD System page (our About).
+  if (/chrome:\/\/settings\/(help|about)\b/.test(here)) {
+    var v = chrome.runtime.getURL('pages/version.html');
+    try { location.replace(v); } catch (e) { location.href = v; }
+    return;
+  }
   for (var i = 0; i < MAP.length; i++) {
     var prefix = MAP[i][0];
     if (here === prefix || here === prefix + '/' ||
