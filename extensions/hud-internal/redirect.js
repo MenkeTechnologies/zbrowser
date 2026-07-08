@@ -4,6 +4,10 @@
   // Only replace pages we can make FUNCTIONAL. Pages with no extension API
   // (flags, discards, dns, password-manager, …) are left native and merely
   // skinned by the content script — replacing them with a shell loses features.
+  // Every shadowed page has a FULL reimplementation on a real chrome.* API:
+  // extensions (developerPrivate), settings (settingsPrivate — all prefs),
+  // history (history: search + delete + clear), bookmarks (bookmarks: full CRUD),
+  // version (info). If a page can't be made functional, don't add it here.
   var MAP = [
     ['chrome://extensions', 'pages/extensions.html'],
     ['chrome://settings', 'pages/settings.html'],
