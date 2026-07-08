@@ -122,6 +122,15 @@ for ext in newtab extensions/zpwrchrome extensions/hud-internal; do
   cyber_ok "ext // $name"
 done
 
+# Stamp the app version into the HUD System page. version.js hardcodes ZWIRE_VERSION
+# (the extension can't read the .app CFBundleVersion at runtime); stamp the STAGED copy
+# from package.json every build so the bundled System page can never drift from the release.
+VER_JS="$RES/ext/hud-internal/pages/version.js"
+if [ -f "$VER_JS" ]; then
+  sed -i '' "s/var ZWIRE_VERSION = '[^']*'/var ZWIRE_VERSION = '$VERSION'/" "$VER_JS" 2>/dev/null || true
+  cyber_ok "version // stamped System page → v$VERSION"
+fi
+
 # 3) the native host — a single self-contained Rust binary (no python/psutil)
 cp "$HOST_BIN" "$RES/native/zwire-host"
 chmod +x "$RES/native/zwire-host"
