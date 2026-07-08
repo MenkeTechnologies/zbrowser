@@ -157,6 +157,7 @@
       ],
       "js": [
         "lib/zgui-core/webui/data-table.js",
+        "lib/zgui-core/webui/card.js",
         "debug-adapter.js"
       ],
       "run_at": "document_idle"
