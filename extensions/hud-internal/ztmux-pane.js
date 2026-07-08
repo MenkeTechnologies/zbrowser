@@ -198,6 +198,14 @@
     // race-free — we request only once our own listener exists, and the top frame
     // always has its listener up.
     up({ syncReq: 1 });
+    // Report this pane's live URL up to the WM so a split/retile re-render restores
+    // the pane to the page it's on (not its stale start src → newtab). Fires on load
+    // (this script re-injects on every full navigation) + SPA route changes.
+    function reportLoc() { try { up({ loc: location.href }); } catch (e) {} }
+    reportLoc();
+    window.addEventListener('hashchange', reportLoc);
+    window.addEventListener('popstate', reportLoc);
+    window.addEventListener('pageshow', reportLoc);
     function setNative(el, v) { try { var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value'); if (d && d.set) { d.set.call(el, v); return; } } catch (e) {} el.value = v; }
     // focused editable → last-focused → first editable in the page. The final fallback
     // makes synchronize-panes land in a peer pane that was never focused (cross-origin
