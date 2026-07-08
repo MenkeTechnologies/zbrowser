@@ -58,11 +58,6 @@
       openEmptyPane: function (bodyEl) { var ref = { url: NEWTAB }; mountPane(bodyEl, ref); return Promise.resolve(ref); },
       renderPane: function (bodyEl, ref) { mountPane(bodyEl, ref); },
       paneLabel: function (ref) { return hostLabel(ref && ref.url); },
-      // A split/retile re-parents each pane, which reloads its <iframe>. ZGui.tmux
-      // re-renders reused panes from their ref so they reload to the page they were
-      // showing (ref.url, kept live by the pane's 'loc' reports below) — not the
-      // stale start page. Without this the other panes snap back to newtab on split.
-      reRenderOnRetile: true,
       // pane ops for the cross-origin iframe model — postMessage into the pane's forwarder.
       applyKey: function (bodyEl, key) { postToPane(bodyEl, { syncapply: key }); },
       setSync: function (bodyEl, on) { postToPane(bodyEl, { setSync: !!on }); },
@@ -78,8 +73,8 @@
     if (d.prefix) ZGui.tmux.prefix();
     else if (d.cmdKey) ZGui.tmux.key(d.cmdKey, { ctrl: d.ctrl, alt: d.alt });
     else if (d.palette) { try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} }
-    else if (d.loc) {   // a pane navigated — track its live URL on the ref so a retile
-      // re-render (reRenderOnRetile) reloads it to THIS page, not its stale start src.
+    else if (d.loc) {   // a pane navigated — track its live URL on the ref so the address
+      // bar reflects the current page and a saved/restored session reopens it there.
       var bl = bodyOfSource(ev.source);
       if (bl && bl._ztxRef) { bl._ztxRef.url = d.loc; if (bl._ztxAddr) bl._ztxAddr.value = (d.loc && d.loc !== NEWTAB) ? d.loc : ''; }
     }
