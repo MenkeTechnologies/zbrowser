@@ -9,6 +9,26 @@
   var FZ = window.ZGui.fzf;
   var shell, body, prefs = [], query = '', regexOn = false;
 
+  // Deep-link: redirect.js forwards chrome://settings/<slug> here as
+  // ?section=<slug> so we can land on the matching group instead of the top.
+  // A native settings slug isn't always the pref-group key, so alias the ones
+  // that differ; anything else falls back to a substring match on the group.
+  var pendingSection = null;
+  try { pendingSection = (new URLSearchParams(location.search)).get('section'); } catch (e) {}
+  var SECTION_ALIAS = {
+    performance: 'performance_tuning', downloads: 'download',
+    onstartup: 'session', search: 'default_search', languages: 'intl',
+    accessibility: 'settings', autofill: 'autofill', privacy: 'profile',
+    appearance: 'appearance'
+  };
+  if (pendingSection) {
+    var st = document.createElement('style');
+    st.textContent = '[data-section-focus]{outline:1px solid var(--zb-cyan,#05d9e8);' +
+      'box-shadow:0 0 0 3px color-mix(in srgb,var(--zb-cyan,#05d9e8) 30%,transparent);' +
+      'transition:box-shadow .3s,outline-color .3s;}';
+    (document.head || document.documentElement).appendChild(st);
+  }
+
   function el(t, c, h) { var e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; }
   function pretty(s) { return s.replace(/[._]/g, ' ').replace(/\b\w/g, function (m) { return m.toUpperCase(); }); }
 
@@ -128,9 +148,36 @@
       var inner = el('div');
       inner.appendChild(el('div', 'set-h', '// ' + pretty(g)));
       groups[g].sort(function (a, b) { return a.key.localeCompare(b.key); }).forEach(function (p) { inner.appendChild(prefRow(p)); });
-      body.appendChild(ZGui.card({ body: inner }).el);
+      var card = ZGui.card({ body: inner }).el;
+      card.setAttribute('data-group', g);
+      body.appendChild(card);
     });
     body.appendChild(el('div', 'footer-docs', '[ ' + prefs.length + ' settings · settingsPrivate ]'));
+    // Re-apply the deep-link on every render while it's pending, so the async
+    // zb_ui reconcile re-render (boot) can't bounce us back to the top.
+    if (pendingSection) scrollToSection(pendingSection);
+  }
+
+  // Scroll to (and briefly highlight) the group matching a native settings slug.
+  // Returns true if a section was found + focused.
+  function scrollToSection(slug) {
+    if (!slug) return false;
+    slug = String(slug).toLowerCase();
+    var want = (SECTION_ALIAS[slug] || slug).toLowerCase();
+    var cards = [].slice.call(body.querySelectorAll('[data-group]'));
+    var gkey = function (c) { return (c.getAttribute('data-group') || '').toLowerCase(); };
+    // Prefer an exact/prefix match on the aliased group (performance_tuning) so a
+    // merely performance-*containing* group (cpu_performance_tier_override) can't
+    // win; fall back to a substring match on the alias, then the raw slug.
+    var hit = cards.find(function (c) { return gkey(c) === want; })
+      || cards.find(function (c) { return gkey(c).indexOf(want) === 0; })
+      || cards.find(function (c) { return gkey(c).indexOf(want) >= 0; })
+      || cards.find(function (c) { return gkey(c).indexOf(slug) >= 0; });
+    if (!hit) return false;
+    try { hit.scrollIntoView({ block: 'start' }); } catch (e) { hit.scrollIntoView(); }
+    hit.setAttribute('data-section-focus', '1');
+    setTimeout(function () { try { hit.removeAttribute('data-section-focus'); } catch (e) {} }, 1600);
+    return true;
   }
 
   function mergeChanged(list) {
@@ -142,8 +189,12 @@
 
   function boot() {
     shell = ZBHUD.mount({ title: 'SETTINGS', current: 'settings.html', filterPlaceholder: 'filter settings…',
-      onFilter: function (q, rx) { query = q; regexOn = rx; render(); } });
+      onFilter: function (q, rx) { pendingSection = null; query = q; regexOn = rx; render(); } });
     body = shell.body;
+    // The deep-link is a one-shot intent: stop forcing the section once the page
+    // has settled (the reconcile re-render fires within ~100ms), so later
+    // pref-change re-renders don't yank the user back.
+    setTimeout(function () { pendingSection = null; }, 2000);
     sp.getAllPrefs(function (list) {
       void chrome.runtime.lastError;
       prefs = (list || []).slice().sort(function (a, b) { return a.key.localeCompare(b.key); });

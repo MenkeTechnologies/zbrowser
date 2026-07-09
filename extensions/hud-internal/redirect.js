@@ -29,6 +29,15 @@
       var url = MAP[i][1] === 'GENERIC'
         ? chrome.runtime.getURL('pages/generic.html') + '?u=' + encodeURIComponent(here)
         : chrome.runtime.getURL(MAP[i][1]);
+      // Preserve the requested sub-page so the HUD page opens the right SECTION
+      // instead of dumping at the top: chrome://settings/performance was matching
+      // the 'chrome://settings' prefix and redirecting to settings.html with the
+      // '/performance' dropped. Pass the first path segment as ?section= so
+      // settings.js can scroll to it. Only the settings shadow is sectioned.
+      if (prefix === 'chrome://settings') {
+        var slug = here.slice(prefix.length).replace(/^\//, '').split(/[/?#]/)[0];
+        if (slug) url += (url.indexOf('?') >= 0 ? '&' : '?') + 'section=' + encodeURIComponent(slug);
+      }
       try { location.replace(url); } catch (e) { location.href = url; }
       return;
     }
