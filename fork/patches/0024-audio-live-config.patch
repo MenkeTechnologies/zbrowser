@@ -1,0 +1,370 @@
+diff --git a/content/browser/audio/audio_service.cc b/content/browser/audio/audio_service.cc
+index 70615782c5..6cb740a4c0 100644
+--- a/content/browser/audio/audio_service.cc
++++ b/content/browser/audio/audio_service.cc
+@@ -5,13 +5,25 @@
+ #include "content/public/browser/audio_service.h"
+ 
+ #include "base/auto_reset.h"
++#include "base/base_paths.h"
+ #include "base/command_line.h"
++#include "base/environment.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/functional/bind.h"
+ #include "base/metrics/field_trial_params.h"
++#include "base/no_destructor.h"
++#include "base/path_service.h"
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_number_conversions.h"
++#include "base/strings/string_util.h"
+ #include "base/task/deferred_sequenced_task_runner.h"
++#include "base/task/thread_pool.h"
++#include "base/task/sequenced_task_runner.h"
++#include "base/threading/sequence_bound.h"
+ #include "base/threading/sequence_local_storage_slot.h"
+ #include "base/time/time.h"
++#include "base/timer/timer.h"
+ #include "build/build_config.h"
+ #include "content/browser/browser_main_loop.h"
+ #include "content/public/browser/browser_task_traits.h"
+@@ -73,6 +85,21 @@ void BindStreamFactoryFromAnySequence(
+   GetAudioService().BindStreamFactory(std::move(receiver));
+ }
+ 
++// zwire HUD (fork patch 0025) — bind a ZwireMeters receiver. The bind itself must
++// happen on the UI thread (that is where the AudioService remote lives), but the
++// resulting ZwireMeters remote is then driven from the caller's sequence — so the
++// meter pump can run entirely off the UI thread (see ZwireMeterPump below).
++void BindZwireMetersFromAnySequence(
++    mojo::PendingReceiver<audio::mojom::ZwireMeters> receiver) {
++  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
++    GetUIThreadTaskRunner({})->PostTask(
++        FROM_HERE,
++        base::BindOnce(&BindZwireMetersFromAnySequence, std::move(receiver)));
++    return;
++  }
++  GetAudioService().BindZwireMeters(std::move(receiver));
++}
++
+ void LaunchAudioServiceInProcess(
+     mojo::PendingReceiver<audio::mojom::AudioService> receiver) {
+   // NOTE: If BrowserMainLoop is uninitialized, we have no AudioManager. In
+@@ -166,6 +193,177 @@ uint32_t ScanEdidBitstreams() {
+ }
+ #endif  // PASS_EDID_ON_COMMAND_LINE
+ 
++// zwire HUD live output-EQ sync (fork patch 0024) --------------------------
++// The audio service (sandboxed) can't read $STATE/audio-eq, so the (unsandboxed)
++// browser process polls it off-thread and pushes the spec to the service on
++// change via mojom AudioService::SetZwireEqConfig — reshaping all output live.
++base::FilePath ZwireEqFilePath() {
++  std::unique_ptr<base::Environment> env = base::Environment::Create();
++  std::optional<std::string> st = env->GetVar("ZWIRE_STATE");
++  if (st && !st->empty()) {
++    return base::FilePath(*st).Append("audio-eq");
++  }
++  base::FilePath dir;
++#if BUILDFLAG(IS_MAC)
++  if (base::PathService::Get(base::DIR_APP_DATA, &dir)) {
++    return dir.Append("com.menketechnologies.zwire").Append("audio-eq");
++  }
++#else
++  std::optional<std::string> xdg = env->GetVar("XDG_CONFIG_HOME");
++  if (xdg && !xdg->empty()) {
++    return base::FilePath(*xdg).Append("zwire").Append("audio-eq");
++  }
++  if (base::PathService::Get(base::DIR_HOME, &dir)) {
++    return dir.Append(".config").Append("zwire").Append("audio-eq");
++  }
++#endif
++  return base::FilePath();
++}
++
++std::string ReadZwireEqFileBlocking() {
++  base::FilePath p = ZwireEqFilePath();
++  std::string s;
++  if (!p.empty()) {
++    base::ReadFileToString(p, &s);
++  }
++  std::string trimmed;
++  base::TrimWhitespaceASCII(s, base::TRIM_ALL, &trimmed);
++  return trimmed;
++}
++
++std::string& LastZwireEqSpec() {
++  static base::NoDestructor<std::string> s;
++  return *s;
++}
++
++void OnZwireEqRead(const std::string& spec) {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  if (spec == LastZwireEqSpec()) {
++    return;  // no change — avoid churning the audio-thread cascade rebuild
++  }
++  LastZwireEqSpec() = spec;
++  VLOG(1) << "zwire-eq-push: spec='" << spec << "'";
++  GetAudioService().SetZwireEqConfig(spec);
++}
++
++void PollZwireEqOnce() {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
++      base::BindOnce(&ReadZwireEqFileBlocking), base::BindOnce(&OnZwireEqRead));
++}
++
++void EnsureZwireEqSyncStarted() {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  static base::NoDestructor<base::RepeatingTimer> timer;
++  if (timer->IsRunning()) {
++    return;
++  }
++  PollZwireEqOnce();
++  // 25ms poll: the file read is on the ThreadPool and pushes over mojo only on a
++  // real change (cache-guarded), so the cost is negligible but knob→engine latency
++  // drops from up-to-100ms of poll granularity to up-to-25ms. Combined with the
++  // page's ~20ms debounce + direct fs_write, knob response is ~40-50ms.
++  timer->Start(FROM_HERE, base::Milliseconds(25),
++               base::BindRepeating(&PollZwireEqOnce));
++}
++
++// zwire HUD output-meter pump (fork patch 0025): pull a compact meter frame from
++// the audio service each tick and atomically write it to $STATE/meters, which
++// the native host streams to the HUD Audio charts (no page-side tab capture).
++base::FilePath ZwireMetersFilePath() {
++  base::FilePath eq = ZwireEqFilePath();
++  return eq.empty() ? eq : eq.DirName().Append("meters");
++}
++
++void WriteZwireMetersBlocking(const std::string& json) {
++  base::FilePath p = ZwireMetersFilePath();
++  if (p.empty() || json.empty()) {
++    return;
++  }
++  // Atomic-ish: write temp then rename so the host never reads a torn frame.
++  base::FilePath tmp = p.AddExtension(FILE_PATH_LITERAL("tmp"));
++  bool w = base::WriteFile(tmp, json);
++  bool r = w && base::ReplaceFile(tmp, p, nullptr);
++  static int n = 0;
++  if ((n++ % 60) == 0) {
++    VLOG(1) << "zwire-meters-write: path=" << p.value() << " len=" << json.size()
++               << " write=" << w << " replace=" << r;
++  }
++}
++
++// The meter pump. Lives entirely on a ThreadPool sequence (NOT the UI thread) so
++// it keeps producing frames during a scroll/trackpad gesture, which saturates the
++// UI thread — the old UI-thread timer+mojo pump starved to <1 fps under a gesture,
++// freezing the meter file and the HUD Audio charts. It owns a ZwireMeters remote
++// (bound via the one-time UI hop in BindZwireMetersFromAnySequence), pulls a frame
++// every 33 ms, and writes the file on this same MayBlock sequence.
++class ZwireMeterPump {
++ public:
++  ZwireMeterPump() = default;
++
++  // Runs on the pump sequence.
++  void Start() {
++    Rebind();
++    timer_.Start(FROM_HERE, base::Milliseconds(33),
++                 base::BindRepeating(&ZwireMeterPump::Tick,
++                                     base::Unretained(this)));
++  }
++
++ private:
++  void Rebind() {
++    remote_.reset();
++    BindZwireMetersFromAnySequence(remote_.BindNewPipeAndPassReceiver());
++    remote_.set_disconnect_handler(base::BindOnce(
++        &ZwireMeterPump::OnDisconnect, base::Unretained(this)));
++  }
++
++  void Tick() {
++    // Don't stack calls if the service is momentarily slow; skip this tick.
++    if (!remote_ || pending_) {
++      return;
++    }
++    pending_ = true;
++    remote_->Pull(
++        base::BindOnce(&ZwireMeterPump::OnPulled, base::Unretained(this)));
++  }
++
++  void OnPulled(const std::string& json) {
++    pending_ = false;
++    static int n = 0;
++    if ((n++ % 90) == 0) {
++      VLOG(1) << "zwire-meters-pull(pool): len=" << json.size();
++    }
++    if (!json.empty()) {
++      WriteZwireMetersBlocking(json);  // same MayBlock sequence
++    }
++  }
++
++  void OnDisconnect() {
++    // Audio service went away (e.g. restarted). Rebind — the next Pull relaunches
++    // it via GetAudioService() on the UI hop.
++    pending_ = false;
++    Rebind();
++  }
++
++  mojo::Remote<audio::mojom::ZwireMeters> remote_;
++  base::RepeatingTimer timer_;
++  bool pending_ = false;
++};
++
++void EnsureZwireMeterPumpStarted() {
++  DCHECK_CURRENTLY_ON(BrowserThread::UI);
++  static base::NoDestructor<base::SequenceBound<ZwireMeterPump>> pump(
++      base::ThreadPool::CreateSequencedTaskRunner(
++          {base::MayBlock(), base::TaskPriority::USER_VISIBLE}));
++  static bool started = false;
++  if (started) {
++    return;
++  }
++  started = true;
++  pump->AsyncCall(&ZwireMeterPump::Start);
++}
++
+ }  // namespace
+ 
+ audio::mojom::AudioService& GetAudioService() {
+@@ -173,6 +371,8 @@ audio::mojom::AudioService& GetAudioService() {
+   if (g_service_override) {
+     return *g_service_override;
+   }
++  EnsureZwireEqSyncStarted();
++  EnsureZwireMeterPumpStarted();
+ 
+   // NOTE: We use sequence-local storage slot not because we support access from
+   // any sequence, but to limit the lifetime of this Remote to the lifetime of
+@@ -183,6 +383,9 @@ audio::mojom::AudioService& GetAudioService() {
+       remote_slot;
+   auto& remote = remote_slot.GetOrCreateValue();
+   if (!remote) {
++    // Fresh (or restarted) audio service — force the next poll to re-push the
++    // live EQ config, since the new process only has the launch-time seed.
++    LastZwireEqSpec().clear();
+     auto receiver = remote.BindNewPipeAndPassReceiver();
+ #ifdef PASS_EDID_ON_COMMAND_LINE
+     // The EDID scan is done in a COM STA thread and the result
+diff --git a/services/audio/public/mojom/audio_service.mojom b/services/audio/public/mojom/audio_service.mojom
+index e72fd2e47f..254ab16771 100644
+--- a/services/audio/public/mojom/audio_service.mojom
++++ b/services/audio/public/mojom/audio_service.mojom
+@@ -20,6 +20,27 @@ import "services/audio/public/mojom/testing_api.mojom";
+ [ServiceSandbox=sandbox.mojom.Sandbox.kAudio,
+  RequireContext=sandbox.mojom.Context.kBrowswer]
+ interface AudioService {
++  // zwire HUD (fork patch 0024) — set the browser-wide, always-on output-EQ
++  // config live. The browser pushes the $STATE/audio-eq spec on every change so
++  // the audio service reshapes all output streams in realtime (the audio sandbox
++  // can't read the file itself).
++  [AllowedContext=sandbox.mojom.Context.kBrowser]
++  SetZwireEqConfig(string spec);
++
++  // zwire HUD (fork patch 0025) — pull a compact JSON meter frame (spectrum +
++  // levels + scope) of the real post-DSP output, for the HUD Audio charts.
++  [AllowedContext=sandbox.mojom.Context.kBrowser]
++  GetZwireMeters() => (string json);
++
++  // zwire HUD (fork patch 0025) — bind a ZwireMeters sink. Unlike GetZwireMeters
++  // (a method on this browser-UI-thread-bound interface), a bound ZwireMeters
++  // receiver is usable from ANY browser sequence, so the browser can pump meter
++  // frames off a ThreadPool sequence instead of the UI thread — which starves
++  // during scroll/trackpad gestures and froze the meter file. See
++  // content/browser/audio/audio_service.cc.
++  [AllowedContext=sandbox.mojom.Context.kBrowser]
++  BindZwireMeters(pending_receiver<ZwireMeters> receiver);
++
+   // Binds a SystemInfo interface receiver.
+   [AllowedContext=sandbox.mojom.Context.kBrowser]
+   BindSystemInfo(pending_receiver<SystemInfo> receiver);
+@@ -47,3 +68,11 @@ interface AudioService {
+   [AllowedContext=sandbox.mojom.Context.kBrowser]
+   BindMlModelManager(pending_receiver<MlModelManager> receiver);
+ };
++
++// zwire HUD (fork patch 0025) — a meter sink bindable from any browser sequence,
++// so the meter pump can run off the UI thread (which starves during gestures).
++interface ZwireMeters {
++  // Pull one compact JSON meter frame (spectrum + levels + scope) of the real
++  // post-DSP output. Empty string if no audio has played yet.
++  Pull() => (string json);
++};
+diff --git a/services/audio/service.cc b/services/audio/service.cc
+index 98f88fea8d..95c8f1279e 100644
+--- a/services/audio/service.cc
++++ b/services/audio/service.cc
+@@ -17,12 +17,14 @@
+ #include "base/time/default_tick_clock.h"
+ #include "base/trace_event/trace_event.h"
+ #include "build/build_config.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
+ #include "media/audio/aecdump_recording_manager.h"
+ #include "media/audio/audio_manager.h"
+ #include "media/media_buildflags.h"
+ #include "services/audio/debug_recording.h"
+ #include "services/audio/device_notifier.h"
+ #include "services/audio/log_factory_manager.h"
++#include "services/audio/output_controller.h"
+ #include "services/audio/system_info.h"
+ 
+ #if BUILDFLAG(IS_MAC)
+@@ -107,6 +109,39 @@ void Service::SetTestingApiBinderForTesting(TestingApiBinder binder) {
+   GetTestingApiBinder() = std::move(binder);
+ }
+ 
++void Service::SetZwireEqConfig(const std::string& spec) {
++  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
++  VLOG(1) << "zwire-eq-mojo-recv: spec='" << spec << "'";
++  // Update the process-global live output-EQ config (see output_controller.cc).
++  audio::SetZwireEqConfig(spec);
++}
++
++void Service::GetZwireMeters(GetZwireMetersCallback callback) {
++  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
++  std::move(callback).Run(audio::ZwireMeterSnapshotJson());
++}
++
++namespace {
++// Trivial self-owned meter sink. Pull() just snapshots the process-global meter
++// state (updated on the real-time audio thread in output_controller.cc), so it is
++// safe to bind + pull from any browser sequence — the browser uses this to pump
++// frames off the UI thread. Lives on the service's main sequence.
++class ZwireMetersImpl : public mojom::ZwireMeters {
++ public:
++  ZwireMetersImpl() = default;
++  void Pull(PullCallback callback) override {
++    std::move(callback).Run(audio::ZwireMeterSnapshotJson());
++  }
++};
++}  // namespace
++
++void Service::BindZwireMeters(
++    mojo::PendingReceiver<mojom::ZwireMeters> receiver) {
++  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
++  mojo::MakeSelfOwnedReceiver(std::make_unique<ZwireMetersImpl>(),
++                              std::move(receiver));
++}
++
+ void Service::BindSystemInfo(
+     mojo::PendingReceiver<mojom::SystemInfo> receiver) {
+   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+diff --git a/services/audio/service.h b/services/audio/service.h
+index 535b99f52d..54fdbe62af 100644
+--- a/services/audio/service.h
++++ b/services/audio/service.h
+@@ -93,6 +93,13 @@ class Service final : public mojom::AudioService {
+ 
+  private:
+   // mojom::AudioService implementation:
++  // zwire HUD (fork patch 0024) — live browser-wide output-EQ config.
++  void SetZwireEqConfig(const std::string& spec) override;
++  // zwire HUD (fork patch 0025) — pull a compact meter frame.
++  void GetZwireMeters(GetZwireMetersCallback callback) override;
++  // zwire HUD (fork patch 0025) — bind an off-UI-thread-pullable meter sink.
++  void BindZwireMeters(
++      mojo::PendingReceiver<mojom::ZwireMeters> receiver) override;
+   void BindSystemInfo(
+       mojo::PendingReceiver<mojom::SystemInfo> receiver) override;
+   void BindDebugRecording(

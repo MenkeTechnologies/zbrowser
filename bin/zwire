@@ -64,6 +64,16 @@ IFS=','; LOAD="${EXTS[*]}"; unset IFS
 
 mkdir -p "$PROFILE"
 
+# Browser-wide audio EQ (fork patch 0022). The HUD Audio dashboard persists an EQ
+# spec to $STATE/audio-eq; export it as ZWIRE_AUDIO_EQ so every renderer child
+# inherits it and AudioRendererMixer::Render() shapes all page audio by default.
+# Only meaningful on the source-built fork (the patch); harmless on a stock base.
+# Format: "preampDb;type,freq,gainDb,q;…"  (empty/"off" = bypass). Env override wins.
+if [[ -z ${ZWIRE_AUDIO_EQ:-} && -f $STATE/audio-eq ]]; then
+  EQ_SPEC=$(tr -d '\r\n' < "$STATE/audio-eq" 2>/dev/null || true)
+  [[ -n $EQ_SPEC ]] && export ZWIRE_AUDIO_EQ="$EQ_SPEC"
+fi
+
 # Ensure the native-messaging host (HUD terminal / system-stats / scheme bridge)
 # is wired for this profile. Only (re)build + install when the manifest is
 # missing or its target binary is gone, so normal launches stay instant. This is
@@ -87,4 +97,5 @@ exec "$BASE" \
   --homepage="chrome://newtab" \
   --disable-features=NtpFooter \
   --enable-features=SplitViewHorizontal,SplitViewTabRestore \
+  --autoplay-policy=no-user-gesture-required \
   "$@"

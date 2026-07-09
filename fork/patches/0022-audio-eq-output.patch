@@ -1,0 +1,646 @@
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index edab63d18f..bca0100284 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -5,6 +5,7 @@
+ #include "chrome/browser/chrome_content_browser_client.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <iterator>
+ #include <map>
+ #include <memory>
+@@ -2831,6 +2832,18 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+     base::CommandLine* command_line,
+     int child_process_id) {
+   crash_keys::AppendStringAnnotationsCommandLineSwitch(command_line);
++
++  // zwire HUD — forward the browser-wide audio EQ config (fork patch 0022) to
++  // every child process as a switch. The audio service is a sandboxed utility
++  // that does NOT inherit the browser's ZWIRE_AUDIO_EQ environment variable
++  // (the re-signed macOS bundle strips env for utility children), so a switch is
++  // the reliable channel — services/audio/output_controller.cc reads it there.
++  {
++    const char* zwire_eq = ::getenv("ZWIRE_AUDIO_EQ");
++    if (zwire_eq && *zwire_eq) {
++      command_line->AppendSwitchASCII("zwire-audio-eq", zwire_eq);
++    }
++  }
+ #if BUILDFLAG(IS_MAC)
+   std::unique_ptr<metrics::ClientInfo> client_info =
+       GoogleUpdateSettings::LoadMetricsClientInfo();
+diff --git a/services/audio/output_controller.cc b/services/audio/output_controller.cc
+index 7ee20397dd..767932980d 100644
+--- a/services/audio/output_controller.cc
++++ b/services/audio/output_controller.cc
+@@ -11,6 +11,7 @@
+ #include <string>
+ #include <utility>
+ 
++#include "base/command_line.h"
+ #include "base/compiler_specific.h"
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+@@ -28,8 +29,530 @@
+ #include "media/media_buildflags.h"
+ #include "services/audio/device_listener_output_stream.h"
+ 
++#include <array>
++#include <atomic>
++#include <cmath>
++#include <cstdlib>
++#include <memory>
++#include <string_view>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/memory/ptr_util.h"
++#include "base/no_destructor.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/string_split.h"
++#include "base/strings/string_util.h"
++#include "base/synchronization/lock.h"
++#include "media/base/audio_bus.h"
++
+ namespace audio {
+ 
++// ---------------------------------------------------------------------------
++// zwire HUD — browser-wide output EQ (fork patch 0022).
++//
++// Applied in OutputController::OnMoreData(), right after the renderer's PCM is
++// read into `dest`. This is the audio service's per-stream output pull: EVERY
++// stream that reaches the OS output device — HTMLMediaElement, MSE (YouTube),
++// Web Audio, WebRTC — passes through here, so the HUD equalizer shapes all
++// browser audio. (The renderer-side AudioRendererMixer only carries some
++// streams, which is why patching it missed real tab audio.)
++//
++// Config comes once from the ZWIRE_AUDIO_EQ environment variable (exported by
++// bin/zwire; the audio service process inherits it), format:
++//   "preampDb;type,freq,gainDb,q;..."   type in {lowshelf, peaking, highshelf}
++// Empty / "off" / "0" => bypass. Per-stream biquad state; immutable config =>
++// lock-free on the audio device thread. Same RBJ math as the HUD dashboard.
++// ---------------------------------------------------------------------------
++// zwire live config (fork patch 0024) --------------------------------------
++// Immutable parsed config (preamp + bands; sample-rate independent). Swapped
++// atomically by SetZwireEqConfig(), invoked on the audio-service main thread
++// from mojom AudioService::SetZwireEqConfig — which the browser process pushes
++// whenever $STATE/audio-eq changes (the audio sandbox can't read the file in
++// this process). Each OutputController's ZwireAudioEq reads the current snapshot
++// every block and recomputes its cascade (for its OWN sample rate) when the
++// generation changes, so a dashboard edit reshapes ALL live streams in realtime,
++// tab-independent, with nothing open.
++struct ZwireEqBand {
++  std::string type;
++  double freq = 0, gain_db = 0, q = 0;
++};
++struct ZwireEqConfig {
++  double preamp_db = 0.0;
++  std::vector<ZwireEqBand> bands;
++  // zdsp channel strip (ported from zdsp-core channel_strip.h) + drive.
++  double gain = 1.0;    // post-EQ linear gain, 0..4
++  double pan = 0.0;     // equal-power pan, -1..1
++  bool mono = false;    // fold L/R to mono after the strip
++  double drive = 0.0;   // tanh soft-clip amount, 0 = bypass
++  // Stereo-linked feed-forward compressor (ratio<=1 => bypass).
++  double comp_thresh_db = 0.0;
++  double comp_ratio = 1.0;
++  double comp_attack_ms = 10.0;
++  double comp_release_ms = 150.0;
++  uint64_t generation = 0;
++};
++
++namespace {
++
++struct ZwireEqSlotStorage {
++  base::Lock lock;
++  std::shared_ptr<const ZwireEqConfig> cfg;
++};
++ZwireEqSlotStorage& GlobalZwireEqSlot() {
++  static base::NoDestructor<ZwireEqSlotStorage> slot;
++  return *slot;
++}
++std::shared_ptr<const ZwireEqConfig> LoadZwireEqConfig() {
++  ZwireEqSlotStorage& s = GlobalZwireEqSlot();
++  base::AutoLock l(s.lock);
++  return s.cfg;
++}
++std::shared_ptr<const ZwireEqConfig> ParseZwireEqSpec(const std::string& spec) {
++  std::vector<std::string_view> parts = base::SplitStringPiece(
++      spec, ";", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
++  if (parts.empty()) {
++    return nullptr;
++  }
++  double preamp_db = 0.0;
++  if (!base::StringToDouble(parts[0], &preamp_db)) {
++    return nullptr;
++  }
++  auto cfg = std::make_shared<ZwireEqConfig>();
++  cfg->preamp_db = preamp_db;
++  for (size_t i = 1; i < parts.size(); ++i) {
++    std::vector<std::string_view> f = base::SplitStringPiece(
++        parts[i], ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
++    // Channel-strip directive: "name,value" (2 fields) — zdsp channel_strip.
++    if (f.size() == 2) {
++      double v = 0;
++      if (!base::StringToDouble(f[1], &v)) {
++        continue;
++      }
++      if (f[0] == "gain") {
++        cfg->gain = std::clamp(v, 0.0, 4.0);
++      } else if (f[0] == "pan") {
++        cfg->pan = std::clamp(v, -1.0, 1.0);
++      } else if (f[0] == "mono") {
++        cfg->mono = (v != 0.0);
++      } else if (f[0] == "drive") {
++        cfg->drive = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "thresh") {
++        cfg->comp_thresh_db = std::clamp(v, -60.0, 0.0);
++      } else if (f[0] == "ratio") {
++        cfg->comp_ratio = std::clamp(v, 1.0, 20.0);
++      } else if (f[0] == "attack") {
++        cfg->comp_attack_ms = std::clamp(v, 0.1, 500.0);
++      } else if (f[0] == "release") {
++        cfg->comp_release_ms = std::clamp(v, 1.0, 3000.0);
++      }
++      continue;
++    }
++    if (f.size() < 4) {
++      continue;
++    }
++    ZwireEqBand band;
++    band.type = std::string(f[0]);
++    if (band.type != "lowshelf" && band.type != "peaking" &&
++        band.type != "highshelf") {
++      continue;
++    }
++    if (!base::StringToDouble(f[1], &band.freq) ||
++        !base::StringToDouble(f[2], &band.gain_db) ||
++        !base::StringToDouble(f[3], &band.q)) {
++      continue;
++    }
++    if (band.freq <= 0 || band.q <= 0) {
++      continue;
++    }
++    cfg->bands.push_back(std::move(band));
++  }
++  static std::atomic<uint64_t> gen{0};
++  cfg->generation = gen.fetch_add(1, std::memory_order_relaxed) + 1;
++  return cfg;
++}
++
++}  // namespace
++
++void SetZwireEqConfig(const std::string& spec) {
++  std::string trimmed;
++  base::TrimWhitespaceASCII(spec, base::TRIM_ALL, &trimmed);
++  std::shared_ptr<const ZwireEqConfig> cfg;
++  if (trimmed == "off" || trimmed == "0") {
++    cfg = nullptr;  // engine explicitly bypassed
++  } else {
++    // Default (empty / no file) => unity config so the engine is ALWAYS in the
++    // signal path by default; audio is routed through it even when transparent.
++    cfg = ParseZwireEqSpec(trimmed.empty() ? "0.0" : trimmed);
++  }
++  ZwireEqSlotStorage& s = GlobalZwireEqSlot();
++  base::AutoLock l(s.lock);
++  s.cfg = std::move(cfg);
++}
++
++namespace {
++// Seed the global once from the launch switch/env so the first blocks are shaped
++// before the browser's first live push (the sandbox blocks reading the file in
++// this process).
++bool SeedZwireEqFromLaunchArgs() {
++  std::string s = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++      "zwire-audio-eq");
++  if (s.empty()) {
++    const char* spec = ::getenv("ZWIRE_AUDIO_EQ");
++    if (spec) {
++      s = spec;
++    }
++  }
++  // Always seed (empty => unity) so the engine is on by default from the first
++  // block, before the browser's first live push.
++  SetZwireEqConfig(s);
++  return true;
++}
++}  // namespace
++
++class ZwireAudioEq {
++ public:
++  ZwireAudioEq(int sample_rate, int channels)
++      : sample_rate_(sample_rate), channels_(channels) {
++    [[maybe_unused]] static const bool seeded = SeedZwireEqFromLaunchArgs();
++  }
++
++  void Process(media::AudioBus* bus) {
++    std::shared_ptr<const ZwireEqConfig> cfg = LoadZwireEqConfig();
++    if (!cfg) {
++      cached_gen_ = 0;
++      return;  // engine explicitly off ("off"/"0")
++    }
++    if (cfg->generation != cached_gen_) {
++      Rebuild(*cfg);
++    }
++    // Always-on: every stream flows through the engine by default (identity when
++    // the chain is unity). Per channel: preamp -> EQ cascade -> gain -> drive.
++    const int channels = bus->channels();
++    const int frames = bus->frames();
++    for (int ch = 0; ch < channels; ++ch) {
++      if (static_cast<size_t>(ch) >= state_.size()) {
++        break;
++      }
++      base::span<float> data = bus->channel(ch);
++      std::vector<BiquadState>& st = state_[ch];
++      for (int i = 0; i < frames; ++i) {
++        double x = static_cast<double>(data[i]) * preamp_;
++        for (size_t b = 0; b < biquads_.size(); ++b) {
++          const Biquad& q = biquads_[b];
++          BiquadState& s = st[b];
++          double y = q.b0 * x + q.b1 * s.x1 + q.b2 * s.x2 - q.a1 * s.y1 -
++                     q.a2 * s.y2;
++          s.x2 = s.x1;
++          s.x1 = x;
++          s.y2 = s.y1;
++          s.y1 = y;
++          x = y;
++        }
++        x *= gain_;
++        if (drive_ > 0.0) {
++          const double k = 1.0 + drive_ * 8.0;  // tanh soft-clip, unity-normalized
++          x = std::tanh(x * k) / std::tanh(k);
++        }
++        data[i] = static_cast<float>(x);
++      }
++    }
++    // Stereo-linked feed-forward compressor (ratio<=1 => bypass). Peak detector
++    // on max(|L|,|R|); attack/release smoothing on the linear gain.
++    if (comp_ratio_ > 1.0 && channels >= 1) {
++      base::span<float> l = bus->channel(0);
++      base::span<float> r = channels >= 2 ? bus->channel(1) : bus->channel(0);
++      for (int i = 0; i < frames; ++i) {
++        const double peak = std::max(std::fabs(static_cast<double>(l[i])),
++                                     std::fabs(static_cast<double>(r[i])));
++        const double level_db = 20.0 * std::log10(std::max(peak, 1e-9));
++        const double over = level_db - comp_thresh_db_;
++        double target_gain = 1.0;
++        if (over > 0.0) {
++          const double gr_db = over * (1.0 - 1.0 / comp_ratio_);
++          target_gain = std::pow(10.0, -gr_db / 20.0);
++        }
++        const double coeff =
++            (target_gain < comp_env_) ? comp_attack_coeff_ : comp_release_coeff_;
++        comp_env_ = coeff * comp_env_ + (1.0 - coeff) * target_gain;
++        l[i] = static_cast<float>(l[i] * comp_env_);
++        if (channels >= 2) {
++          r[i] = static_cast<float>(r[i] * comp_env_);
++        }
++      }
++    }
++    // Stereo strip (zdsp channel_strip.h): mono fold, else equal-power pan with a
++    // unity-gain center (sqrt(2) normalized so pan=0 is transparent, not -3 dB).
++    if (channels >= 2) {
++      base::span<float> l = bus->channel(0);
++      base::span<float> r = bus->channel(1);
++      if (mono_) {
++        for (int i = 0; i < frames; ++i) {
++          const float m = 0.5f * (l[i] + r[i]);
++          l[i] = m;
++          r[i] = m;
++        }
++      } else if (pan_ != 0.0) {
++        const double ang = (pan_ + 1.0) * M_PI / 4.0;
++        const float cl = static_cast<float>(std::cos(ang) * M_SQRT2);
++        const float cr = static_cast<float>(std::sin(ang) * M_SQRT2);
++        for (int i = 0; i < frames; ++i) {
++          l[i] *= cl;
++          r[i] *= cr;
++        }
++      }
++    }
++  }
++
++ private:
++  struct Biquad {
++    double b0, b1, b2, a1, a2;
++  };
++  struct BiquadState {
++    double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
++  };
++
++  // Recompute this stream's biquad cascade for its own sample rate from the new
++  // config snapshot; keep it stateful across the swap by resizing filter memory.
++  void Rebuild(const ZwireEqConfig& cfg) {
++    preamp_ = std::pow(10.0, cfg.preamp_db / 20.0);
++    gain_ = cfg.gain;
++    pan_ = cfg.pan;
++    mono_ = cfg.mono;
++    drive_ = cfg.drive;
++    comp_thresh_db_ = cfg.comp_thresh_db;
++    comp_ratio_ = cfg.comp_ratio;
++    comp_attack_coeff_ = std::exp(
++        -1.0 / std::max(1.0, cfg.comp_attack_ms * 0.001 * sample_rate_));
++    comp_release_coeff_ = std::exp(
++        -1.0 / std::max(1.0, cfg.comp_release_ms * 0.001 * sample_rate_));
++    biquads_.clear();
++    for (const ZwireEqBand& band : cfg.bands) {
++      AddBand(band);
++    }
++    state_.assign(static_cast<size_t>(channels_),
++                  std::vector<BiquadState>(biquads_.size()));
++    cached_gen_ = cfg.generation;
++    VLOG(1) << "zwire-eq-rebuild: gen=" << cfg.generation
++            << " preamp_db=" << cfg.preamp_db << " bands=" << cfg.bands.size()
++            << " gain=" << gain_ << " pan=" << pan_ << " mono=" << mono_
++            << " drive=" << drive_ << " sr=" << sample_rate_;
++  }
++
++  void AddBand(const ZwireEqBand& band) {
++    if (band.freq <= 0 || band.q <= 0 || band.freq >= sample_rate_ / 2.0) {
++      return;
++    }
++    const double A = std::pow(10.0, band.gain_db / 40.0);
++    const double w0 = 2.0 * M_PI * band.freq / sample_rate_;
++    const double cw = std::cos(w0);
++    const double sw = std::sin(w0);
++    const double alpha = sw / (2.0 * band.q);
++    double b0, b1, b2, a0, a1, a2;
++    if (band.type == "peaking") {
++      b0 = 1 + alpha * A;
++      b1 = -2 * cw;
++      b2 = 1 - alpha * A;
++      a0 = 1 + alpha / A;
++      a1 = -2 * cw;
++      a2 = 1 - alpha / A;
++    } else if (band.type == "lowshelf") {
++      const double s = 2 * std::sqrt(A) * alpha;
++      b0 = A * ((A + 1) - (A - 1) * cw + s);
++      b1 = 2 * A * ((A - 1) - (A + 1) * cw);
++      b2 = A * ((A + 1) - (A - 1) * cw - s);
++      a0 = (A + 1) + (A - 1) * cw + s;
++      a1 = -2 * ((A - 1) + (A + 1) * cw);
++      a2 = (A + 1) + (A - 1) * cw - s;
++    } else if (band.type == "highshelf") {
++      const double s = 2 * std::sqrt(A) * alpha;
++      b0 = A * ((A + 1) + (A - 1) * cw + s);
++      b1 = -2 * A * ((A - 1) + (A + 1) * cw);
++      b2 = A * ((A + 1) + (A - 1) * cw - s);
++      a0 = (A + 1) - (A - 1) * cw + s;
++      a1 = 2 * ((A - 1) - (A + 1) * cw);
++      a2 = (A + 1) - (A - 1) * cw - s;
++    } else {
++      return;
++    }
++    if (a0 == 0) {
++      return;
++    }
++    biquads_.push_back(Biquad{b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0});
++  }
++
++  const int sample_rate_;
++  const int channels_;
++  uint64_t cached_gen_ = 0;
++  double preamp_ = 1.0;
++  double gain_ = 1.0;
++  double pan_ = 0.0;
++  bool mono_ = false;
++  double drive_ = 0.0;
++  double comp_thresh_db_ = 0.0;
++  double comp_ratio_ = 1.0;
++  double comp_attack_coeff_ = 0.0;
++  double comp_release_coeff_ = 0.0;
++  double comp_env_ = 1.0;
++  std::vector<Biquad> biquads_;
++  std::vector<std::vector<BiquadState>> state_;
++};
++
++// ---------------------------------------------------------------------------
++// zwire HUD — output meters (fork patch 0025). The always-on engine already has
++// the real post-DSP audio in OnMoreData, so we tap it here (no page-side tab
++// capture, which mutes the source). ZwireMeterWrite() appends each stream's
++// post-EQ block to a process-global ring; ZwireMeterSnapshotJson() (called on
++// the audio-service main thread from mojom AudioService::GetZwireMeters) folds
++// it into a compact JSON frame — log-spaced Goertzel spectrum bars, peak/RMS
++// L/R, phase correlation, and a decimated stereo scope — which the browser
++// relays to the HUD Audio charts. Lock-guarded; audio thread only appends.
++namespace {
++
++struct ZwireMeterState {
++  base::Lock lock;
++  static constexpr size_t kN = 2048;      // FFT window (mono)
++  static constexpr size_t kScope = 256;   // scope samples (decimated)
++  static constexpr size_t kBars = 64;     // spectrum bars
++  std::array<float, kN> mono = {};
++  size_t write_pos = 0;
++  std::array<float, kScope> scope_l = {};
++  std::array<float, kScope> scope_r = {};
++  size_t scope_pos = 0;
++  int decim_count = 0;
++  int decim = 1;
++  float peak_l = 0, peak_r = 0;
++  double sumsq_l = 0, sumsq_r = 0;
++  int64_t nrms = 0;
++  double sum_lr = 0, sum_ll = 0, sum_rr = 0;  // correlation accumulators
++  int sample_rate = 48000;
++};
++
++ZwireMeterState& GlobalMeter() {
++  static base::NoDestructor<ZwireMeterState> s;
++  return *s;
++}
++
++}  // namespace
++
++// Append one post-DSP stereo block to the global meter ring (audio thread).
++void ZwireMeterWrite(const media::AudioBus& bus, int sample_rate) {
++  const int channels = bus.channels();
++  const int frames = bus.frames();
++  if (channels < 1 || frames <= 0) {
++    return;
++  }
++  ZwireMeterState& m = GlobalMeter();
++  base::AutoLock lock(m.lock);
++  m.sample_rate = sample_rate;
++  m.decim = std::max<int>(1, ZwireMeterState::kN / ZwireMeterState::kScope);
++  base::span<const float> l = bus.channel(0);
++  base::span<const float> r = channels >= 2 ? bus.channel(1) : bus.channel(0);
++  base::span<float> ring(m.mono);
++  base::span<float> scl(m.scope_l);
++  base::span<float> scr(m.scope_r);
++  for (int i = 0; i < frames; ++i) {
++    const float sl = l[static_cast<size_t>(i)];
++    const float sr = r[static_cast<size_t>(i)];
++    ring[m.write_pos] = 0.5f * (sl + sr);
++    m.write_pos = (m.write_pos + 1) % ZwireMeterState::kN;
++    const float al = std::fabs(sl), ar = std::fabs(sr);
++    if (al > m.peak_l) m.peak_l = al;
++    if (ar > m.peak_r) m.peak_r = ar;
++    m.sumsq_l += static_cast<double>(sl) * sl;
++    m.sumsq_r += static_cast<double>(sr) * sr;
++    m.sum_lr += static_cast<double>(sl) * sr;
++    m.sum_ll += static_cast<double>(sl) * sl;
++    m.sum_rr += static_cast<double>(sr) * sr;
++    m.nrms++;
++    if (++m.decim_count >= m.decim) {
++      m.decim_count = 0;
++      scl[m.scope_pos] = sl;
++      scr[m.scope_pos] = sr;
++      m.scope_pos = (m.scope_pos + 1) % ZwireMeterState::kScope;
++    }
++  }
++}
++
++// Produce a compact JSON meter frame from the global ring (main thread).
++std::string ZwireMeterSnapshotJson() {
++  ZwireMeterState& m = GlobalMeter();
++  std::array<float, ZwireMeterState::kN> mono = {};
++  std::array<float, ZwireMeterState::kScope> scope_l = {}, scope_r = {};
++  base::span<float> monos(mono), scls(scope_l), scrs(scope_r);
++  double peak_l, peak_r, rms_l, rms_r, corr;
++  int sample_rate;
++  {
++    base::AutoLock lock(m.lock);
++    base::span<float> ring(m.mono), rscl(m.scope_l), rscr(m.scope_r);
++    for (size_t i = 0; i < ZwireMeterState::kN; ++i) {
++      monos[i] = ring[(m.write_pos + i) % ZwireMeterState::kN];
++    }
++    for (size_t i = 0; i < ZwireMeterState::kScope; ++i) {
++      scls[i] = rscl[(m.scope_pos + i) % ZwireMeterState::kScope];
++      scrs[i] = rscr[(m.scope_pos + i) % ZwireMeterState::kScope];
++    }
++    peak_l = m.peak_l;
++    peak_r = m.peak_r;
++    const double n = static_cast<double>(std::max<int64_t>(1, m.nrms));
++    rms_l = std::sqrt(m.sumsq_l / n);
++    rms_r = std::sqrt(m.sumsq_r / n);
++    const double denom = std::sqrt(m.sum_ll * m.sum_rr);
++    corr = denom > 1e-12 ? (m.sum_lr / denom) : 0.0;
++    sample_rate = m.sample_rate;
++    m.peak_l *= 0.6f;
++    m.peak_r *= 0.6f;
++    m.sumsq_l = m.sumsq_r = 0;
++    m.sum_lr = m.sum_ll = m.sum_rr = 0;
++    m.nrms = 0;
++  }
++  static std::array<float, ZwireMeterState::kN> hann = {};
++  static bool hann_init = false;
++  base::span<float> hanns(hann);
++  if (!hann_init) {
++    for (size_t i = 0; i < ZwireMeterState::kN; ++i) {
++      hanns[i] = 0.5f * (1.0f - static_cast<float>(std::cos(
++                                    2.0 * M_PI * i / (ZwireMeterState::kN - 1))));
++    }
++    hann_init = true;
++  }
++  const double nyq = sample_rate / 2.0;
++  std::string out = "{\"bars\":[";
++  for (size_t b = 0; b < ZwireMeterState::kBars; ++b) {
++    const double f =
++        20.0 * std::pow(nyq / 20.0, (b + 0.5) / ZwireMeterState::kBars);
++    const double coeff = 2.0 * std::cos(2.0 * M_PI * f / sample_rate);
++    double s1 = 0, s2 = 0;
++    for (size_t i = 0; i < ZwireMeterState::kN; ++i) {
++      const double s0 = monos[i] * hanns[i] + coeff * s1 - s2;
++      s2 = s1;
++      s1 = s0;
++    }
++    const double power = s1 * s1 + s2 * s2 - coeff * s1 * s2;
++    const double mag =
++        std::sqrt(std::max(0.0, power)) / (ZwireMeterState::kN * 0.25);
++    const double db = mag > 1e-6 ? 20.0 * std::log10(mag) : -100.0;
++    const double norm = std::clamp((db + 90.0) / 90.0, 0.0, 1.0);
++    if (b) out += ',';
++    out += base::StringPrintf("%.4f", norm);
++  }
++  out += "],\"sl\":[";
++  for (size_t i = 0; i < ZwireMeterState::kScope; ++i) {
++    if (i) out += ',';
++    out += base::StringPrintf("%.4f", scls[i]);
++  }
++  out += "],\"sr\":[";
++  for (size_t i = 0; i < ZwireMeterState::kScope; ++i) {
++    if (i) out += ',';
++    out += base::StringPrintf("%.4f", scrs[i]);
++  }
++  out += base::StringPrintf(
++      "],\"pL\":%.4f,\"pR\":%.4f,\"rL\":%.4f,\"rR\":%.4f,\"corr\":%.4f,\"fs\":%d}",
++      std::min(1.0, peak_l), std::min(1.0, peak_r), rms_l, rms_r, corr,
++      sample_rate);
++  return out;
++}
++
+ namespace {
+ 
+ // Requests data before reading in OutputController::OnMoreData, which may
+@@ -167,6 +690,8 @@ OutputController::OutputController(
+     : id_(base::UnguessableToken::Create()),
+       audio_manager_(audio_manager),
+       params_(params),
++      zwire_eq_(std::make_unique<ZwireAudioEq>(params.sample_rate(),
++                                               params.channels())),
+       managed_device_output_stream_create_callback_(
+           std::move(managed_device_output_stream_create_callback)),
+       handler_(handler),
+@@ -483,6 +1008,20 @@ int OutputController::OnMoreData(base::TimeDelta delay,
+ 
+   const bool received_data = sync_reader_->Read(dest, is_mixing);
+ 
++  // zwire HUD — shape every output stream with the browser-wide EQ (null ==
++  // bypass; see ZwireAudioEq). This is the universal chokepoint: all renderer
++  // audio (media element, MSE/YouTube, Web Audio, WebRTC) is read into `dest`
++  // here before it reaches the OS device. Skip compressed/bitstream passthrough.
++  if (zwire_eq_ && received_data && !dest->is_bitstream_format()) {
++    zwire_eq_->Process(dest);
++  }
++  // zwire HUD — feed the post-DSP audio to the output meters (fork patch 0025),
++  // so the HUD Audio charts visualize the real engine output with no page-side
++  // tab capture.
++  if (received_data && !dest->is_bitstream_format()) {
++    ZwireMeterWrite(*dest, params_.sample_rate());
++  }
++
+   const base::TimeTicks reference_time = delay_timestamp + delay;
+ 
+   if (!dest->is_bitstream_format()) {
+diff --git a/services/audio/output_controller.h b/services/audio/output_controller.h
+index 21a7e2e63f..fa5a891faf 100644
+--- a/services/audio/output_controller.h
++++ b/services/audio/output_controller.h
+@@ -58,6 +58,26 @@
+ // it via construction to synchronously fulfill this read request.
+ 
+ namespace audio {
++
++// zwire HUD — browser-wide output EQ, applied per output stream in
++// OnMoreData() (see output_controller.cc). Reads a process-global live config.
++class ZwireAudioEq;
++
++// zwire HUD (fork patch 0024) — set the process-global, live output-EQ config
++// (spec: "preampDb;type,freq,gainDb,q;..."; empty/"off"/"0" = bypass). Called on
++// the audio-service main thread from mojom AudioService::SetZwireEqConfig; the
++// browser pushes it whenever $STATE/audio-eq changes. Applies to every live
++// output stream on the next block.
++void SetZwireEqConfig(const std::string& spec);
++
++// zwire HUD (fork patch 0025) — output meters. ZwireMeterWrite appends a
++// post-DSP block to the process-global meter ring (audio thread, from
++// OutputController::OnMoreData). ZwireMeterSnapshotJson folds it into a compact
++// JSON frame (spectrum bars + peak/RMS + correlation + scope), called on the
++// audio-service main thread from mojom AudioService::GetZwireMeters.
++void ZwireMeterWrite(const media::AudioBus& bus, int sample_rate);
++std::string ZwireMeterSnapshotJson();
++
+ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
+                          public LoopbackSource {
+  public:
+@@ -307,6 +327,10 @@ class OutputController : public media::AudioOutputStream::AudioSourceCallback,
+   const raw_ptr<media::AudioManager> audio_manager_;
+   const media::AudioParameters params_;
+ 
++  // zwire HUD output EQ for this stream (null = bypass). Built at construction
++  // from ZWIRE_AUDIO_EQ; read only on the audio device thread in OnMoreData().
++  const std::unique_ptr<ZwireAudioEq> zwire_eq_;
++
+   // Callback to create a device output stream; if not specified -
+   // |audio_manager_| will be used to create a device output stream.
+   ManagedDeviceOutputStreamCreateCallback

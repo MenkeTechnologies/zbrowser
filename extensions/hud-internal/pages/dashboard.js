@@ -47,6 +47,7 @@
   var SECTIONS = [
     {
       cat: 'zwire', label: '// ZWIRE · HUD PAGES', tiles: [
+        zt('audio.html',        'Audio',         'Live audio dashboard — parametric EQ, gain, compressor, spectrum + meters.', '♪'),
         zt('extensions.html',   'Extensions',    'HUD extension manager — toggle, detail, shortcuts.', '⬡'),
         zt('settings.html',     'Settings',      'zwire HUD settings — colorscheme, CRT/neon, behavior.', '⚙'),
         zt('store.html',        'App Store',     'MenkeTechnologies app catalog — install house apps.', '▦'),

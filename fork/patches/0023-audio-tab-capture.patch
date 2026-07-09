@@ -1,0 +1,49 @@
+diff --git a/chrome/browser/extensions/api/tab_capture/tab_capture_api.cc b/chrome/browser/extensions/api/tab_capture/tab_capture_api.cc
+index 77b95c43ee..ae1935ad9f 100644
+--- a/chrome/browser/extensions/api/tab_capture/tab_capture_api.cc
++++ b/chrome/browser/extensions/api/tab_capture/tab_capture_api.cc
+@@ -120,8 +120,18 @@ void AddMediaStreamSourceConstraints(content::WebContents* target_contents,
+ 
+ // Get the id of the allowlisted extension.
+ std::string GetAllowlistedExtensionID() {
+-  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++  std::string id = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+       switches::kAllowlistedExtensionID);
++  // zwire HUD (fork patch 0023): allowlist the internal HUD extension for tab
++  // capture so the Audio dashboard (audio.html) can snoop any audible tab's
++  // output into its analyzer/EQ chain via tabCapture.getMediaStreamId — with no
++  // manifest permission, no activeTab grant, and no picker/prompt. Only applied
++  // when --allowlisted-extension-id is otherwise unset, and only grants this one
++  // id, so no other extension's capture behavior changes.
++  if (id.empty()) {
++    id = "omcgnnjfmbmpdlofklbpddkhnfibfhgg";
++  }
++  return id;
+ }
+ 
+ content::WebContents* GetActiveWebContents(BrowserWindowInterface* browser) {
+diff --git a/chrome/common/extensions/api/_api_features.json b/chrome/common/extensions/api/_api_features.json
+index ae569f76fd..5741ec51fb 100644
+--- a/chrome/common/extensions/api/_api_features.json
++++ b/chrome/common/extensions/api/_api_features.json
+@@ -972,10 +972,17 @@
+     "dependencies": ["permission:systemPrivate"],
+     "contexts": ["privileged_extension"]
+   },
+-  "tabCapture": {
++  "tabCapture": [{
+     "dependencies": ["permission:tabCapture"],
+-    "contexts": ["privileged_extension"]
+-  },
++    "contexts": ["privileged_extension"],
++    "default_parent": true
++  }, {
++    "channel": "stable",
++    "contexts": ["privileged_extension"],
++    "allowlist": [
++      "DCE846DF72B461D411C8ADA00F7794BFD13F38A6"
++    ]
++  }],
+   "tabCapture.capture": {
+     "disallow_for_service_workers": true
+   },
