@@ -146,7 +146,7 @@ done
 # from package.json every build so the bundled System page can never drift from the release.
 VER_JS="$RES/ext/hud-internal/pages/version.js"
 if [ -f "$VER_JS" ]; then
-  sed -i '' "s/var ZWIRE_VERSION = '[^']*'/var ZWIRE_VERSION = '$VERSION'/" "$VER_JS" 2>/dev/null || true
+  perl -i -pe "s/var ZWIRE_VERSION = '[^']*'/var ZWIRE_VERSION = '$VERSION'/" "$VER_JS"
   cyber_ok "version // stamped System page → v$VERSION"
 fi
 

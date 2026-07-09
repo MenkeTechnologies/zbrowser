@@ -128,7 +128,7 @@ exec "$HERE/browser/chrome" \
   "$@"
 LAUNCH
 # bake the (build-time-known) extension IDs into the launcher
-sed -i "s/__HUD_ID__/$HUD_ID/; s/__ZPWR_ID__/$ZPWR_ID/; s/__NEWTAB_ID__/$NEWTAB_ID/" "$DEST/zwire"
+perl -i -pe "s/__HUD_ID__/$HUD_ID/; s/__ZPWR_ID__/$ZPWR_ID/; s/__NEWTAB_ID__/$NEWTAB_ID/" "$DEST/zwire"
 chmod +x "$DEST/zwire"
 cyber_ok "launcher // install-relative"
 
