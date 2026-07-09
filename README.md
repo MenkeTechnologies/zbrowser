@@ -35,6 +35,11 @@ workspace layered on top:
   drive / pan compiled into the audio service (every tab, live-reconfigurable
   with nothing open) plus a live **Audio HUD page** with real post-DSP spectrum
   and meters;
+- **lifecycle hooks** — a **Hooks HUD page** that binds
+  [stryke](https://github.com/MenkeTechnologies/strykelang) scripts to ~50
+  browser events (tab / window / navigation / download / bookmark / terminal /
+  scheme / audio / ⌘K-command lifecycle, plus an `action` catch-all), with a
+  searchable event picker;
 - the **`zpwrchrome`** power-tool preloaded against a dedicated profile, so it
   never touches your system Chrome.
 
@@ -100,6 +105,17 @@ A full CRUD page: create / rename / duplicate / delete / load / import-export,
 per-pane URL editing, and a **live SVG preview** of each window's tiling. Save
 the current layout with `Ctrl-b S`, attach a saved one with `Ctrl-b s`.
 
+**Hooks (`pages/hooks.html`).** Bind
+[stryke](https://github.com/MenkeTechnologies/strykelang) scripts to browser
+lifecycle events. The service worker fires ~50 events — tab
+open/close/activate/update/move, window open/close/focus, navigation, downloads,
+bookmarks, history, the HUD terminal, scheme changes, the audio engine, ⌘K
+palette commands, plus an `action` catch-all for every command — and `zwire-host`
+runs each **enabled** hook whose event matches, feeding it the event JSON on
+stdin. The script prints an `{actions:[…]}` object the host dispatches (`notify` /
+`open` / `exec` / `pub`). The page has a searchable event picker, a Monaco editor
+with the stryke LSP (vim/emacs modes), and a Test-run button.
+
 **Around it:** a **⌘K command palette** (`zpalette`) — which also carries the
 scheme picker, the light/dark toggle, and the settings controls — **vim-style
 motions** (`zkeys`/`zvim` — jump / scroll / tabs / launch categories), a **find
@@ -107,8 +123,8 @@ bar** (`zfind`), a **powerline status bar** (`ZGui.powerline`, fed by
 `zpowerline.js` from the native host's `zb_sys` system stats + the tmux
 window/pane segment), and **HUD reimplementations**
 of `chrome://{extensions,settings,history,bookmarks,downloads,version}` plus
-Keyboard, Commands, Sessions, CI, a **Host** console, a **Terminal**, an **App
-Store**, and a live **Audio** page — 15 in all. Every shortcut, and the tmux
+Keyboard, Commands, Sessions, a **Hooks** page, CI, a **Host** console, a
+**Terminal**, an **App Store**, and a live **Audio** page — 15 in all. Every shortcut, and the tmux
 prefix itself, is remappable on the Keyboard page.
 
 **Host console (`pages/host.html`).** A HUD tab that talks to the `zwire-host`
