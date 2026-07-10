@@ -30,7 +30,7 @@ index edab63d18f..bca0100284 100644
    std::unique_ptr<metrics::ClientInfo> client_info =
        GoogleUpdateSettings::LoadMetricsClientInfo();
 diff --git a/services/audio/output_controller.cc b/services/audio/output_controller.cc
-index 7ee20397dd..30f7d30980 100644
+index 7ee20397dd..f076020a03 100644
 --- a/services/audio/output_controller.cc
 +++ b/services/audio/output_controller.cc
 @@ -2,6 +2,12 @@
@@ -54,7 +54,7 @@ index 7ee20397dd..30f7d30980 100644
  #include "base/compiler_specific.h"
  #include "base/feature_list.h"
  #include "base/functional/bind.h"
-@@ -28,8 +35,1282 @@
+@@ -28,8 +35,1343 @@
  #include "media/media_buildflags.h"
  #include "services/audio/device_listener_output_stream.h"
  
@@ -753,6 +753,12 @@ index 7ee20397dd..30f7d30980 100644
 +      fb = static_cast<float>(feedback);
 +      mix = static_cast<float>(m);
 +    }
++    // Update scalars without touching the buffer — lets a knob drag retune the
++    // echo without zeroing the delay line (which would click).
++    void SetParams(double feedback, double m) {
++      fb = static_cast<float>(feedback);
++      mix = static_cast<float>(m);
++    }
 +    float Process(float in) {
 +      float d = buf[pos];
 +      buf[pos] = in + d * fb;
@@ -791,6 +797,11 @@ index 7ee20397dd..30f7d30980 100644
 +            0.f);
 +        all_pos[i] = 0;
 +      }
++      SetParams(room, damp, m);
++    }
++    // Retune room/damp/mix without clearing the comb/all-pass buffers (their size
++    // depends only on sample rate), so a knob drag doesn't cut the reverb tail.
++    void SetParams(double room, double damp, double m) {
 +      feedback = static_cast<float>(room * 0.28 + 0.7);   // Freeverb scaleroom/offsetroom
 +      damp1 = static_cast<float>(damp * 0.4);             // Freeverb scaledamp
 +      damp2 = 1.f - damp1;
@@ -829,6 +840,10 @@ index 7ee20397dd..30f7d30980 100644
 +    void Init(int maxlen, double feedback, double m) {
 +      buf.assign(static_cast<size_t>(std::max(4, maxlen)), 0.f);
 +      pos = 0;
++      fb = static_cast<float>(feedback);
++      mix = static_cast<float>(m);
++    }
++    void SetParams(double feedback, double m) {   // retune without clearing the line
 +      fb = static_cast<float>(feedback);
 +      mix = static_cast<float>(m);
 +    }
@@ -879,25 +894,40 @@ index 7ee20397dd..30f7d30980 100644
 +    limit_ceiling_lin_ = std::pow(10.0, cfg.limit_ceiling_db / 20.0);
 +    limit_release_coeff_ = std::exp(
 +        -1.0 / std::max(1.0, cfg.limit_release_ms * 0.001 * sample_rate_));
-+    limit_env_ = 1.0;
-+    // Stereo delay/echo: (re)size the ring to the exact delay time; buffers are
-+    // only allocated while enabled so a bypassed engine carries no delay memory.
++    // NOTE: limit_env_ is NOT reset here — it is a running envelope; zeroing it on
++    // every config edit would jump the limiter gain (click) when any knob moves.
++    // Stereo delay/echo: allocate/clear the ring only on (re)activation or when the
++    // delay TIME changes; a mix/feedback tweak just retunes (preserves the echo).
 +    delay_active_ = cfg.delay_mix > 1e-4 && cfg.delay_ms > 0.1;
 +    if (delay_active_) {
 +      const int n = std::max(
 +          1, static_cast<int>(std::lround(cfg.delay_ms * 0.001 * sample_rate_)));
++      const bool resize = !delay_was_active_ || n != delay_n_;
 +      for (int ch = 0; ch < 2; ++ch) {
-+        delay_[ch].Init(n, cfg.delay_feedback, cfg.delay_mix);
++        if (resize) {
++          delay_[ch].Init(n, cfg.delay_feedback, cfg.delay_mix);
++        } else {
++          delay_[ch].SetParams(cfg.delay_feedback, cfg.delay_mix);
++        }
 +      }
++      delay_n_ = n;
 +    }
-+    // Schroeder reverb: right channel offset by the Freeverb stereospread (23).
++    delay_was_active_ = delay_active_;
++    // Schroeder reverb: comb/all-pass sizes depend only on sample rate, so allocate
++    // once on (re)activation; room/damp/mix tweaks just retune (keep the tail).
 +    reverb_active_ = cfg.reverb_mix > 1e-4;
 +    if (reverb_active_) {
-+      reverb_[0].Init(sample_rate_, cfg.reverb_room, cfg.reverb_damp,
-+                      cfg.reverb_mix, 0);
-+      reverb_[1].Init(sample_rate_, cfg.reverb_room, cfg.reverb_damp,
-+                      cfg.reverb_mix, 23);
++      if (!reverb_was_active_) {
++        reverb_[0].Init(sample_rate_, cfg.reverb_room, cfg.reverb_damp,
++                        cfg.reverb_mix, 0);
++        reverb_[1].Init(sample_rate_, cfg.reverb_room, cfg.reverb_damp,
++                        cfg.reverb_mix, 23);
++      } else {
++        reverb_[0].SetParams(cfg.reverb_room, cfg.reverb_damp, cfg.reverb_mix);
++        reverb_[1].SetParams(cfg.reverb_room, cfg.reverb_damp, cfg.reverb_mix);
++      }
 +    }
++    reverb_was_active_ = reverb_active_;
 +    // Noise gate.
 +    gate_active_ = cfg.gate_thresh_db > -89.5;
 +    gate_thresh_lin_ = std::pow(10.0, cfg.gate_thresh_db / 20.0);
@@ -923,25 +953,33 @@ index 7ee20397dd..30f7d30980 100644
 +      const double a0 = 1 + alpha;
 +      exciter_hp_ = Biquad{(1 + cw) / 2 / a0, -(1 + cw) / a0, (1 + cw) / 2 / a0,
 +                           -2 * cw / a0, (1 - alpha) / a0};
-+      for (int ch = 0; ch < 2; ++ch) {
-+        exciter_hp_state_[ch] = BiquadState{};
++      if (!exciter_was_active_) {   // keep the HP filter memory across retunes
++        for (int ch = 0; ch < 2; ++ch) {
++          exciter_hp_state_[ch] = BiquadState{};
++        }
 +      }
 +    }
-+    // Haas widener: R delayed by haas_ms (buffer sized to the exact delay).
++    exciter_was_active_ = exciter_active_;
++    // Haas widener: R delayed by haas_ms. Only (re)size on activation / ms change
++    // so retuning another knob doesn't zero the delay line.
 +    haas_active_ = cfg.haas_ms > 1e-3;
 +    if (haas_active_) {
 +      const int n = std::max(
 +          1, static_cast<int>(std::lround(cfg.haas_ms * 0.001 * sample_rate_)));
-+      haas_buf_.assign(static_cast<size_t>(n), 0.f);
-+      haas_pos_ = 0;
++      if (!haas_was_active_ || static_cast<int>(haas_buf_.size()) != n) {
++        haas_buf_.assign(static_cast<size_t>(n), 0.f);
++        haas_pos_ = 0;
++      }
 +    }
++    haas_was_active_ = haas_active_;
 +    // Headphone cross-feed: one-pole lowpass (~700 Hz) on the bled channel.
 +    crossfeed_active_ = cfg.crossfeed > 1e-4;
 +    crossfeed_amt_ = cfg.crossfeed;
 +    cf_coeff_ =
 +        static_cast<float>(1.0 - std::exp(-2.0 * M_PI * 700.0 / sample_rate_));
 +    cf_lp_[0] = cf_lp_[1] = 0.f;
-+    // Chorus / flanger: (re)size the modulated delay lines to base+depth.
++    // Chorus / flanger: (re)size the modulated delay lines only on (re)activation
++    // or when the depth (buffer length) changes; mix/rate tweaks just retune.
 +    chorus_active_ = cfg.chorus_mix > 1e-4;
 +    if (chorus_active_) {
 +      chorus_rate_ = cfg.chorus_rate_hz / sample_rate_;
@@ -949,10 +987,17 @@ index 7ee20397dd..30f7d30980 100644
 +      chorus_depth_s_ = cfg.chorus_depth_ms * 0.001 * sample_rate_;
 +      const int maxd =
 +          static_cast<int>(std::ceil(chorus_base_s_ + chorus_depth_s_)) + 4;
++      const bool resize = !chorus_was_active_ || maxd != chorus_maxd_;
 +      for (int ch = 0; ch < 2; ++ch) {
-+        chorus_[ch].Init(maxd, 0.0, cfg.chorus_mix);
++        if (resize) {
++          chorus_[ch].Init(maxd, 0.0, cfg.chorus_mix);
++        } else {
++          chorus_[ch].SetParams(0.0, cfg.chorus_mix);
++        }
 +      }
++      chorus_maxd_ = maxd;
 +    }
++    chorus_was_active_ = chorus_active_;
 +    flanger_active_ = cfg.flanger_mix > 1e-4;
 +    if (flanger_active_) {
 +      flanger_rate_ = cfg.flanger_rate_hz / sample_rate_;
@@ -960,10 +1005,17 @@ index 7ee20397dd..30f7d30980 100644
 +      flanger_depth_s_ = cfg.flanger_depth_ms * 0.001 * sample_rate_;
 +      const int maxd =
 +          static_cast<int>(std::ceil(flanger_base_s_ + flanger_depth_s_)) + 4;
++      const bool resize = !flanger_was_active_ || maxd != flanger_maxd_;
 +      for (int ch = 0; ch < 2; ++ch) {
-+        flanger_[ch].Init(maxd, cfg.flanger_feedback, cfg.flanger_mix);
++        if (resize) {
++          flanger_[ch].Init(maxd, cfg.flanger_feedback, cfg.flanger_mix);
++        } else {
++          flanger_[ch].SetParams(cfg.flanger_feedback, cfg.flanger_mix);
++        }
 +      }
++      flanger_maxd_ = maxd;
 +    }
++    flanger_was_active_ = flanger_active_;
 +    // Phaser: LFO-swept all-pass cascade (state reset on (re)engage).
 +    phaser_active_ = cfg.phaser_mix > 1e-4;
 +    phaser_mix_ = static_cast<float>(cfg.phaser_mix);
@@ -1123,6 +1175,14 @@ index 7ee20397dd..30f7d30980 100644
 +  double limit_env_ = 1.0;
 +  bool delay_active_ = false;
 +  bool reverb_active_ = false;
++  // Reallocation guards: preserve effect buffers across rebuilds (a knob drag
++  // rewrites the config ~30ms) unless the effect (re)activates or its size changes.
++  bool delay_was_active_ = false;
++  int delay_n_ = 0;
++  bool reverb_was_active_ = false;
++  bool chorus_was_active_ = false, flanger_was_active_ = false;
++  int chorus_maxd_ = 0, flanger_maxd_ = 0;
++  bool haas_was_active_ = false;
 +  DelayLine delay_[2];
 +  Reverb reverb_[2];
 +  // zdsp-core expansion — dynamics/saturation.
@@ -1136,6 +1196,7 @@ index 7ee20397dd..30f7d30980 100644
 +  int crush_hold_count_[2] = {0, 0};
 +  float crush_hold_val_[2] = {0.f, 0.f};
 +  bool exciter_active_ = false;
++  bool exciter_was_active_ = false;
 +  double exciter_amt_ = 0.0;
 +  Biquad exciter_hp_ = {1, 0, 0, 0, 0};
 +  BiquadState exciter_hp_state_[2];
@@ -1337,7 +1398,7 @@ index 7ee20397dd..30f7d30980 100644
  namespace {
  
  // Requests data before reading in OutputController::OnMoreData, which may
-@@ -167,6 +1448,8 @@ OutputController::OutputController(
+@@ -167,6 +1509,8 @@ OutputController::OutputController(
      : id_(base::UnguessableToken::Create()),
        audio_manager_(audio_manager),
        params_(params),
@@ -1346,7 +1407,7 @@ index 7ee20397dd..30f7d30980 100644
        managed_device_output_stream_create_callback_(
            std::move(managed_device_output_stream_create_callback)),
        handler_(handler),
-@@ -483,6 +1766,20 @@ int OutputController::OnMoreData(base::TimeDelta delay,
+@@ -483,6 +1827,20 @@ int OutputController::OnMoreData(base::TimeDelta delay,
  
    const bool received_data = sync_reader_->Read(dest, is_mixing);
  
