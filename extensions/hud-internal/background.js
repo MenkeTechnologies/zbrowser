@@ -242,14 +242,15 @@ function startSysStream() {
         // answered the socket usually isn't this subscribed one). The sysinfo stream is our keep-alive.
         try { port.postMessage({ cmd: 'kv_get', app: 'zwire', key: '__zbus_action', id: 'zbAction' }); } catch (e) {}
       }
-      // Reply to the __zbus_action poll: run it if we haven't seen this nonce. Baseline on first sight
-      // so we don't replay the last action every time the worker wakes.
+      // Reply to the __zbus_action poll: run any action newer than the last we ran, then DELETE it from
+      // the kv so it can't re-fire. `_zbLastN` (0 by default) guards against a double-read racing the
+      // delete — it does NOT baseline-skip, so a freshly-queued action runs on the very first poll.
       else if (m.id === 'zbAction' && m.value && m.value.a) {
         var n = +m.value._n || 0;
-        if (typeof self._zbLastN === 'undefined') { self._zbLastN = n; }
-        else if (n > self._zbLastN) {
+        if (n > (self._zbLastN || 0)) {
           self._zbLastN = n;
           try { var q = {}; for (var k in m.value) { if (k !== '_n') q[k] = m.value[k]; } q._zbn = n; chrome.storage.local.set({ zb_cmd: q }); } catch (e) {}
+          try { port.postMessage({ cmd: 'kv_del', app: 'zwire', key: '__zbus_action' }); } catch (e) {}
         }
       }
       // Live theme bus (scheme/ui) + the same-process zbus.action fast path.
