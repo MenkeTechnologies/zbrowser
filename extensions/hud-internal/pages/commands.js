@@ -204,6 +204,24 @@
       pill = el('span', 'zb-lsp'); pill.title = 'stryke language server';
       paintPill(pill, _lspState); _lspPills.push(pill);
       bar.appendChild(pill);
+      // ▶ Run — execute THIS editor's stryke buffer now via the host runner (bundled stryke + App),
+      // toast stdout/stderr. Lets you test an App::open("zwire") script without saving it as a command.
+      var runBtn = Z.button({ label: '▶ Run', variant: 'primary', onClick: function () {
+        var code = handle.getValue() || '';
+        if (!code.trim()) { toast('nothing to run', 'error'); return; }
+        runBtn.disabled = true;
+        chrome.runtime.sendNativeMessage(HOST, { cmd: 'stryke_run', code: code }, function (reply) {
+          runBtn.disabled = false;
+          if (chrome.runtime.lastError) { toast('run: ' + chrome.runtime.lastError.message, 'error'); return; }
+          var r = reply || {};
+          if (r.ok === false) { toast('stryke: ' + (r.err || 'failed'), 'error'); return; }
+          var out = (r.stdout || '').trim(), er = (r.stderr || '').trim();
+          var bad = (r.code != null && r.code !== 0) || r.timedOut;
+          toast('▶ ' + (out || er || (bad ? 'exit ' + r.code : 'ok ✓')).slice(0, 220), bad ? 'error' : 'success');
+        });
+      }});
+      runBtn.title = 'Run this stryke script now';
+      bar.appendChild(runBtn);
       // ≡ Actions — the zwire automation surface (App::open("zwire")->verbs()), searchable,
       // click-to-insert `App::open("zwire")->call("verb", {})`. Fetched live through the host's
       // stryke runner (uses the bundled stryke + App package). Mirrors the Tauri GUI Scripts editor.
