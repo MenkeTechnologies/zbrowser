@@ -201,6 +201,58 @@
       pill = el('span', 'zb-lsp'); pill.title = 'stryke language server';
       paintPill(pill, _lspState); _lspPills.push(pill);
       bar.appendChild(pill);
+      // ≡ Actions — the zwire automation surface (App::open("zwire")->verbs()), searchable,
+      // click-to-insert `App::open("zwire")->call("verb", {})`. Fetched live through the host's
+      // stryke runner (uses the bundled stryke + App package). Mirrors the Tauri GUI Scripts editor.
+      var actBtn = Z.button({ label: '≡ Actions', variant: 'mini', onClick: function () {
+        chrome.runtime.sendNativeMessage(HOST, { cmd: 'stryke_run',
+          code: 'use App\nprint to_json(App::open("zwire")->verbs())' }, function (reply) {
+          if (chrome.runtime.lastError) { toast('actions: ' + chrome.runtime.lastError.message, 'error'); return; }
+          var verbs = [];
+          try { verbs = (JSON.parse(((reply && reply.stdout) || '').trim()) || {}).verbs || []; } catch (e) {}
+          if (!verbs.length) { toast('no actions — is zwire running (host reachable)?', 'error'); return; }
+          showActions(verbs);
+        });
+      }});
+      actBtn.el.title = 'Insert an App::open("zwire") call';
+      bar.appendChild(actBtn.el);
+    }
+    // Self-contained searchable popup of the zwire bus verbs (inline styles — extension pages allow
+    // them, unlike Tauri release CSP). Click a row to append the call to this editor.
+    function showActions(verbs) {
+      var old = wrap.querySelector('.zb-actpop'); if (old) old.remove();
+      var pop = el('div', 'zb-actpop');
+      pop.style.cssText = 'position:absolute;top:34px;right:6px;z-index:1000;background:#0a0e16;border:1px solid #22384d;border-radius:6px;padding:6px;max-height:300px;overflow:auto;width:340px;box-shadow:0 10px 30px rgba(0,0,0,.6);';
+      var search = el('input');
+      search.placeholder = 'Filter ' + verbs.length + ' actions…'; search.spellcheck = false;
+      search.style.cssText = 'width:100%;box-sizing:border-box;margin-bottom:6px;background:#050810;border:1px solid #22384d;color:#9fe;padding:5px 8px;border-radius:4px;font:12px ui-monospace,monospace;';
+      var list = el('div');
+      function draw(q) {
+        list.innerHTML = '';
+        verbs.filter(function (v) { return !q || String(v.id).toLowerCase().indexOf(q) >= 0; }).slice(0, 300).forEach(function (v) {
+          var row = el('div', null, v.id);
+          row.style.cssText = 'padding:4px 8px;cursor:pointer;color:#7fe6c0;font:12px ui-monospace,monospace;border-radius:4px;';
+          row.addEventListener('mouseenter', function () { row.style.background = '#12233a'; });
+          row.addEventListener('mouseleave', function () { row.style.background = 'transparent'; });
+          row.addEventListener('click', function () {
+            var cur = handle.getValue() || '';
+            var needsUse = !/^\s*use\s+App\b/m.test(cur);
+            var snippet = (needsUse ? 'use App\n' : '') + 'App::open("zwire")->call("' + v.id + '", {})\n';
+            if (typeof handle.setValue === 'function') {
+              handle.setValue(cur + (cur && cur.charAt(cur.length - 1) !== '\n' ? '\n' : '') + snippet);
+            }
+            pop.remove();
+          });
+          list.appendChild(row);
+        });
+        if (!list.children.length) { var e2 = el('div', null, 'no match'); e2.style.cssText = 'padding:4px 8px;color:#567;font:12px monospace;'; list.appendChild(e2); }
+      }
+      search.addEventListener('input', function () { draw(search.value.toLowerCase()); });
+      search.addEventListener('keydown', function (e) { if (e.key === 'Escape') pop.remove(); });
+      pop.appendChild(search); pop.appendChild(list); draw('');
+      wrap.style.position = 'relative';
+      wrap.appendChild(pop);
+      search.focus();
     }
     var mount = el('div', 'zb-chain-monaco');
     var vimStatus = el('div', 'zb-chain-vim');
