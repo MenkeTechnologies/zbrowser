@@ -463,10 +463,13 @@
       chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_get', app: 'zwire', key: '__zbus_action' }, function (r) {
         if (chrome.runtime.lastError) { void chrome.runtime.lastError; return; }
         var v = r && r.value; if (!v || !v.a) return;
-        // Consume then hand straight to the background executor via a direct message — not zb_cmd,
-        // whose storage.onChanged only fires on a value change (a repeat action silently no-ops).
         try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_del', app: 'zwire', key: '__zbus_action' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
-        try { chrome.runtime.sendMessage({ type: 'zbExec', action: v }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+        // Write zb_cmd (the bus the background worker always listens on). A unique _zbn per write makes
+        // storage.onChanged fire every time, so the action never silently no-ops on a repeat.
+        var q = {}; for (var k in v) { if (k !== '_n') q[k] = v[k]; }
+        window.__zbSeq = (window.__zbSeq || 0) + 1;
+        q._zbn = (v._n || 0) + ':' + window.__zbSeq;
+        try { chrome.storage.local.set({ zb_cmd: q }); } catch (e) {}
       });
     } catch (e) {}
   }

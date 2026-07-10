@@ -46,10 +46,13 @@ function drainZbAction() {
     chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_get', app: 'zwire', key: '__zbus_action' }, function (r) {
       if (chrome.runtime.lastError) { void chrome.runtime.lastError; return; }
       var v = r && r.value; if (!v || !v.a) return;
-      // Delete FIRST (single-consume), then execute directly — no storage.onChanged dedup, no
-      // _zbLastN guard that could get stuck and silence every run after the first.
       try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_del', app: 'zwire', key: '__zbus_action' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
-      execZbCmd(v);
+      // Hand off through zb_cmd (the storage bus every build of the worker already listens on, unlike a
+      // new message type a stale worker wouldn't have). A guaranteed-unique _zbn makes the value change
+      // every write, so storage.onChanged fires every time — the "worked 1x then stopped" cause. No guard.
+      var q = {}; for (var k in v) { if (k !== '_n') q[k] = v[k]; }
+      q._zbn = (v._n || 0) + ':' + (self._zbSeq = (self._zbSeq || 0) + 1);
+      try { chrome.storage.local.set({ zb_cmd: q }); } catch (e) {}
     });
   } catch (e) {}
 }
@@ -478,14 +481,11 @@ try {
   chrome.runtime.onStartup.addListener(updateTabs);
 } catch (e) {}
 
-// Command bus: content scripts write zb_cmd to storage; storage.onChanged is a
-// reliable MV3 wakeup (unlike sendMessage to a sleeping worker), so palette
-// navigation / tab-switching always executes.
-// The single browser-action executor. Reached three ways: the zb_cmd storage bus (content-script
-// commands), a direct { type:'zbExec' } runtime message (HUD-page drains), and the SW drain. Direct
-// calls beat the storage path because storage.onChanged only fires on an actual value CHANGE — a
-// repeated action wrote to zb_cmd with the same shape can silently not re-fire ("worked 1x then
-// stopped"). Executing directly removes that dependency entirely.
+// The single browser-action executor. Every path feeds it through the zb_cmd storage bus:
+// content-script commands, the HUD-page drains, and the SW drain all write zb_cmd and this
+// storage.onChanged listener runs it. storage.onChanged is a reliable MV3 wakeup (unlike sendMessage
+// to a sleeping/stale worker). onChanged fires only on a real value CHANGE, so every writer stamps a
+// unique _zbn — that keeps a repeated action from silently not re-firing ("worked 1x then stopped").
 function execZbCmd(c) {
   if (!c || !c.a) return;
   function active(cb) {
@@ -529,11 +529,6 @@ chrome.storage.onChanged.addListener(function (changes, area) {
   if (area !== 'local') return;
   if (!changes.zb_cmd || !changes.zb_cmd.newValue) return;
   execZbCmd(changes.zb_cmd.newValue);
-});
-
-// Direct browser-action delivery from a HUD-page drain (bypasses storage.onChanged dedup).
-chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
-  if (msg && msg.type === 'zbExec' && msg.action) { execZbCmd(msg.action); try { sendResponse({ ok: true }); } catch (e) {} }
 });
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
