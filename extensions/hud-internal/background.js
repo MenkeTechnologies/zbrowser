@@ -235,11 +235,24 @@ function startSysStream() {
     var port = chrome.runtime.connectNative(HOST);
     port.onMessage.addListener(function (m) {
       if (!m) return;
-      if (m.sys) { try { chrome.storage.local.set({ zb_sys: m.sys }); } catch (e) {} }
-      // Bus frames: {ev:'pub', topic, data}. `scheme`/`ui` = live theme; `zbus.action` = a browser
-      // command forwarded from a stryke script via zwire-host's zbus (App::open("zwire")->call
-      // ("browser.newTab") → published here). Route it into the existing zb_cmd action pipeline (the
-      // storage.onChanged handler runs c.a). A nonce makes repeated identical actions re-fire.
+      if (m.sys) {
+        try { chrome.storage.local.set({ zb_sys: m.sys }); } catch (e) {}
+        // Poll for a cross-process browser action queued by a stryke script
+        // (App::open("zwire")->call("browser.*") writes it to the file-backed kv, since the host that
+        // answered the socket usually isn't this subscribed one). The sysinfo stream is our keep-alive.
+        try { port.postMessage({ cmd: 'kv_get', app: 'zwire', key: '__zbus_action', id: 'zbAction' }); } catch (e) {}
+      }
+      // Reply to the __zbus_action poll: run it if we haven't seen this nonce. Baseline on first sight
+      // so we don't replay the last action every time the worker wakes.
+      else if (m.id === 'zbAction' && m.value && m.value.a) {
+        var n = +m.value._n || 0;
+        if (typeof self._zbLastN === 'undefined') { self._zbLastN = n; }
+        else if (n > self._zbLastN) {
+          self._zbLastN = n;
+          try { var q = {}; for (var k in m.value) { if (k !== '_n') q[k] = m.value[k]; } q._zbn = n; chrome.storage.local.set({ zb_cmd: q }); } catch (e) {}
+        }
+      }
+      // Live theme bus (scheme/ui) + the same-process zbus.action fast path.
       else if (m.ev === 'pub' && m.topic === 'zbus.action') {
         try { var d = m.data || {}; d._zbn = (d._zbn || 0) + (typeof Date !== 'undefined' ? Date.now() : 1); chrome.storage.local.set({ zb_cmd: d }); } catch (e) {}
       }
