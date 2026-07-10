@@ -27,11 +27,12 @@
     { value: 'shell', label: 'Run shell command' },
     { value: 'stryke', label: 'Run stryke script' },
     { value: 'js', label: 'Run JavaScript' },
+    { value: 'applescript', label: 'Run AppleScript (macOS)' },
     { value: 'action', label: 'Browser action' },
     { value: 'scheme', label: 'Set color scheme' },
     { value: 'host', label: 'zwire-host (JSON)' }
   ];
-  var TYPE_LABEL = { url: 'open url', shell: 'shell', stryke: 'stryke', js: 'javascript', action: 'action', scheme: 'scheme', host: 'host' };
+  var TYPE_LABEL = { url: 'open url', shell: 'shell', stryke: 'stryke', js: 'javascript', applescript: 'applescript', action: 'action', scheme: 'scheme', host: 'host' };
   var ACTIONS = [
     ['newTab', 'New tab'], ['newWindow', 'New window'], ['duplicateTab', 'Duplicate tab'],
     ['reopenTab', 'Reopen closed tab'], ['closeTab', 'Close tab'], ['closeOthers', 'Close other tabs'],
@@ -47,6 +48,7 @@
     shell: 'Runs via zwire-host in the OS shell (cmd.exe on Windows, /bin/sh -c on macOS/Linux) and toasts the output — no terminal needed. {q} = the typed argument; otherwise the argument is appended.',
     stryke: 'Runs an inline stryke script via zwire-host (stryke -E) using the bundled stryke sidecar — no PATH needed — and toasts stdout. Print with `p`. {q} = the typed argument; otherwise it is appended.',
     js: 'JavaScript run in the extension isolated world (has chrome.*). The variable `q` holds the typed argument.',
+    applescript: 'Runs via zwire-host through osascript (macOS only) — each line becomes an -e arg, so multi-line scripts work with no temp file. {q} = the typed argument. E.g. tell application "Music" to playpause, or display notification "{q}".',
     action: 'Trigger a built-in browser action under your own name.',
     scheme: 'Switch the whole browser color scheme.',
     host: 'Sends a JSON message to zwire-host and shows the reply. Use {q} for the typed argument — e.g. {"cmd":"notify","title":"{q}"} or {"cmd":"exec","argv":["say","{q}"]}. See the HOST tab to explore commands.'
@@ -164,7 +166,11 @@
   // Monaco instance so a steps redraw doesn't leak editors or collide model URIs.
   function makeMonacoControl(kind, val) {
     var isStryke = kind === 'stryke';
-    var placeholder = isStryke ? 'p "hello {q}"   # stryke — print with p, {q} = arg' : "alert('hi ' + q + '!')";
+    var isOsa = kind === 'applescript';
+    var LANG = { js: 'javascript', applescript: 'plaintext' };  // Monaco has no AppleScript grammar
+    var EXT = { js: '.js', applescript: '.applescript' };
+    var placeholder = isStryke ? 'p "hello {q}"   # stryke — print with p, {q} = arg'
+      : isOsa ? 'tell application "Music" to playpause   -- {q} = arg' : "alert('hi ' + q + '!')";
     var canEdit = window.HooksEditor && typeof window.HooksEditor.create === 'function' &&
       (isStryke || typeof window.HooksEditor.createPlain === 'function');
     if (!canEdit) return Z.textarea({ placeholder: placeholder, rows: 4, value: val || '' });
@@ -193,10 +199,10 @@
     // Unique in-memory doc URI per editor — Monaco models must not collide. For
     // stryke the LSP opens each as its own buffer; for JS the URI just names the
     // TS-service model. Not a real file.
-    var uri = 'file:///zwire/commands/step-' + (++_strykeSeq) + (isStryke ? '.stryke' : '.js');
+    var uri = 'file:///zwire/commands/step-' + (++_strykeSeq) + (isStryke ? '.stryke' : (EXT[kind] || '.js'));
     var handle = isStryke
       ? window.HooksEditor.create(mount, { uri: uri, doc: val || '', mode: getEditorMode(), statusBar: vimStatus })
-      : window.HooksEditor.createPlain(mount, { language: 'javascript', uri: uri, doc: val || '', mode: getEditorMode(), statusBar: vimStatus });
+      : window.HooksEditor.createPlain(mount, { language: LANG[kind] || 'javascript', uri: uri, doc: val || '', mode: getEditorMode(), statusBar: vimStatus });
     _strykeEditors.push(handle);
     return {
       el: wrap,
@@ -216,6 +222,7 @@
     if (type === 'scheme') return Z.select({ options: opt(SCHEMES), value: val || 'cyberpunk' });
     if (type === 'js') return makeMonacoControl('js', val);
     if (type === 'stryke') return makeMonacoControl('stryke', val);
+    if (type === 'applescript') return makeMonacoControl('applescript', val);
     if (type === 'host') return Z.textarea({ placeholder: '{"cmd":"notify","title":"hi {q}"}', rows: 3, value: val || '' });
     return Z.textfield({ placeholder: type === 'shell' ? 'git status   ({q} for args)' : 'https://example.com   ({q} optional)', value: val || '' });
   }

@@ -243,6 +243,26 @@
       });
     } catch (err) { hostToast('shell: ' + err, true); }
   }
+  // AppleScript steps run through zwire-host via `osascript` (macOS only). Each
+  // source line becomes an `-e` arg (osascript's own multi-line convention), so
+  // multi-line scripts run without a temp file. stdout/stderr toast back.
+  function runOsa(script) {
+    if (osKind() !== 'mac') { hostToast('applescript: macOS only', true); return; }
+    var args = [];
+    String(script).split('\n').forEach(function (line) { args.push('-e'); args.push(line); });
+    var req = { cmd: 'exec', program: 'osascript', args: args };
+    try {
+      chrome.runtime.sendMessage({ type: 'zb-host', req: req }, function (res) {
+        void chrome.runtime.lastError;
+        if (!res || !res.ok) { hostToast('applescript: ' + ((res && res.err) || 'no response'), true); return; }
+        var r = res.reply || {};
+        var out = b64dec(r.stdout).trim(), er = b64dec(r.stderr).trim();
+        var bad = r.code != null && r.code !== 0;
+        var text = out || er;
+        hostToast('⟨osa⟩' + (text ? ' ◂ ' + text.slice(0, 160) : (bad ? ' (exit ' + r.code + ')' : ' ✓')), bad);
+      });
+    } catch (err) { hostToast('applescript: ' + err, true); }
+  }
   // stryke steps run inline stryke code through zwire-host (`stryke -E`, using the
   // bundled sidecar — no PATH needed). stdout/stderr come back as plain strings.
   function runStryke(code) {
@@ -269,6 +289,11 @@
     if (type === 'stryke') {
       var sc = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : (arg ? v + ' ' + arg : v);
       runStryke(sc);
+      return;
+    }
+    if (type === 'applescript') {
+      var as = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : v;
+      runOsa(as);
       return;
     }
     if (type === 'js') {
