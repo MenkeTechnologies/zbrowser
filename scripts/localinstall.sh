@@ -184,6 +184,31 @@ else
   cyber_warn "stryke not found — Hooks sidecar skipped (host falls back to a system stryke on PATH)"
 fi
 
+# 3c) the stryke-app package (the `App` module for GUI automation / App::open) — staged next to
+#     zwire-host so the host's ensure_stryke_app() extracts it into the stryke store on first run.
+#     Result: `use App` works with NO user install of stryke-app (and no system stryke). MIT, like
+#     zwire. Build the cdylib fresh from the meta-level sibling checkout; best-effort (skipped with a
+#     warning if the source or a Rust toolchain is absent — Hooks still run, `use App` just won't).
+STRYKE_APP_SRC="$ROOT/../stryke-app"
+if [[ -f "$STRYKE_APP_SRC/lib/App.stk" ]]; then
+  ( cd "$STRYKE_APP_SRC" && cargo build --release ) >/dev/null 2>&1 || true
+  mkdir -p "$RES/native/stryke-app/lib"
+  cp "$STRYKE_APP_SRC/stryke.toml" "$RES/native/stryke-app/" 2>/dev/null || true
+  cp "$STRYKE_APP_SRC/lib/App.stk" "$RES/native/stryke-app/lib/" 2>/dev/null || true
+  _staged_dylib=""
+  for dyl in "$STRYKE_APP_SRC/target/release/libstryke_app.dylib" \
+             "$STRYKE_APP_SRC/target/release/libstryke_app.so"; do
+    [[ -f "$dyl" ]] && cp "$dyl" "$RES/native/stryke-app/lib/" && _staged_dylib="$dyl"
+  done
+  if [[ -n "$_staged_dylib" && -f "$RES/native/stryke-app/lib/App.stk" ]]; then
+    cyber_ok "native // stryke-app (App package for GUI scripts) ← $STRYKE_APP_SRC"
+  else
+    cyber_warn "stryke-app cdylib not built — App package incomplete (need a Rust toolchain)"
+  fi
+else
+  cyber_warn "stryke-app source not found at $STRYKE_APP_SRC — GUI-script App package skipped"
+fi
+
 # 4) icon
 [[ -f "$ICON" ]] && cp "$ICON" "$RES/zwire.icns" && cyber_ok "icon // zwire.icns"
 
