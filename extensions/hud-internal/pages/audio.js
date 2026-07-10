@@ -757,7 +757,16 @@
       function (v) { engWidth = v * 2; persistDebounced(); });
     var delayU = knobUnit('DELAY', engDelayMs / 2000,
       function (v) { return Math.round(v * 2000) + ' ms'; },
-      function (v) { engDelayMs = v * 2000; persistDebounced(); });
+      function (v) {
+        engDelayMs = v * 2000;
+        // Dialing in a delay time with DLY MIX at 0 emits nothing (mix-gated in
+        // buildSpec + the engine). Auto-engage an audible wet mix so the knob works.
+        if (engDelayMs > 0.5 && engDelayMix < 0.01) {
+          engDelayMix = 0.35;
+          if (dmixU && dmixU.knob.set) { dmixU.knob.set(0.35); dmixU.read.textContent = dmixU.fmt(0.35); }
+        }
+        persistDebounced();
+      });
     var fbU = knobUnit('FEEDBACK', engDelayFb / 0.95,
       function (v) { return pct(v * 0.95); },
       function (v) { engDelayFb = v * 0.95; persistDebounced(); });
