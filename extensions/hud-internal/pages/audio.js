@@ -85,6 +85,15 @@
   var engDelayMs = 0.0, engDelayFb = 0.3, engDelayMix = 0.0;
   var engReverbMix = 0.0, engRoom = 0.5, engDamp = 0.5;
   var engLimit = false, engCeiling = -1.0;             // brickwall limiter (dBFS ceiling)
+  // zdsp-core expansion — dynamics/saturation · spatial · modulation. Defaults = bypass.
+  var engGate = -90.0;                                 // noise gate threshold dBFS (-90 = open)
+  var engCrushBits = 16.0, engDownsample = 1.0;        // bit-crusher / decimator (16/1 = off)
+  var engExciter = 0.0, engExciterFreq = 3000.0;       // harmonic exciter (0 = off)
+  var engHaas = 0.0;                                   // Haas widener ms (0 = off)
+  var engCrossfeed = 0.0;                              // headphone cross-feed (0 = off)
+  var engChorus = 0.0, engChorusRate = 1.5, engChorusDepth = 5.0;
+  var engFlanger = 0.0, engFlangerRate = 0.5, engFlangerDepth = 2.0, engFlangerFb = 0.3;
+  var engPhaser = 0.0, engPhaserRate = 0.5, engPhaserDepth = 0.7;
   var engBypass = false;  // master engine DSP bypass (A/B diff) — writes "off"
   var engMute = false;    // engine master mute (gain 0)
   // ENGINE meter feed — start it FIRST (connect is ~4ms) so meter frames are
@@ -173,7 +182,39 @@
       parts.push('room,' + engRoom.toFixed(3));
       parts.push('damp,' + engDamp.toFixed(3));
     }
-    if (engLimit) parts.push('ceiling,' + engCeiling.toFixed(2));
+    // zdsp-core expansion — dynamics/saturation.
+    if (engGate > -89.5) parts.push('gate,' + engGate.toFixed(1));
+    if (engCrushBits < 15.5 || engDownsample > 1.0) {
+      parts.push('crush,' + engCrushBits.toFixed(1));
+      parts.push('downsample,' + engDownsample.toFixed(0));
+    }
+    if (engExciter > 1e-3) {
+      parts.push('exciter,' + engExciter.toFixed(3));
+      parts.push('exciterfreq,' + Math.round(engExciterFreq));
+    }
+    // zdsp-core expansion — spatial.
+    if (engHaas > 1e-3) parts.push('haas,' + engHaas.toFixed(1));
+    if (engCrossfeed > 1e-3) parts.push('crossfeed,' + engCrossfeed.toFixed(3));
+    // zdsp-core expansion — modulation.
+    if (engChorus > 1e-3) {
+      parts.push('chorus,' + engChorus.toFixed(3));
+      parts.push('chorusrate,' + engChorusRate.toFixed(3));
+      parts.push('chorusdepth,' + engChorusDepth.toFixed(2));
+    }
+    if (engFlanger > 1e-3) {
+      parts.push('flanger,' + engFlanger.toFixed(3));
+      parts.push('flangerrate,' + engFlangerRate.toFixed(3));
+      parts.push('flangerdepth,' + engFlangerDepth.toFixed(2));
+      parts.push('flangerfb,' + engFlangerFb.toFixed(3));
+    }
+    if (engPhaser > 1e-3) {
+      parts.push('phaser,' + engPhaser.toFixed(3));
+      parts.push('phaserrate,' + engPhaserRate.toFixed(3));
+      parts.push('phaserdepth,' + engPhaserDepth.toFixed(3));
+    }
+    // CEILING auto-engages the limiter: a set ceiling emits the directive even
+    // if the LED toggle wasn't flipped (else the knob silently does nothing).
+    if (engLimit || engCeiling < -0.05) parts.push('ceiling,' + engCeiling.toFixed(2));
     return parts.join(';');
   }
   function stateDirShell() {
@@ -250,7 +291,12 @@
     var bands = [], strip = {
       gain: 1, pan: 0, mono: false, drive: 0, thresh: 0, ratio: 1,
       width: 1, delayMs: 0, delayFb: 0.3, delayMix: 0,
-      reverbMix: 0, room: 0.5, damp: 0.5, limit: false, ceiling: -1
+      reverbMix: 0, room: 0.5, damp: 0.5, limit: false, ceiling: -1,
+      gate: -90, crushBits: 16, downsample: 1, exciter: 0, exciterFreq: 3000,
+      haas: 0, crossfeed: 0,
+      chorus: 0, chorusRate: 1.5, chorusDepth: 5,
+      flanger: 0, flangerRate: 0.5, flangerDepth: 2, flangerFb: 0.3,
+      phaser: 0, phaserRate: 0.5, phaserDepth: 0.7
     };
     for (var i = 1; i < parts.length; i++) {
       var f = parts[i].split(',');
@@ -270,11 +316,30 @@
         else if (nm === 'room' && !isNaN(val)) strip.room = val;
         else if (nm === 'damp' && !isNaN(val)) strip.damp = val;
         else if (nm === 'ceiling' && !isNaN(val)) { strip.limit = true; strip.ceiling = val; }
+        else if (nm === 'gate' && !isNaN(val)) strip.gate = val;
+        else if (nm === 'crush' && !isNaN(val)) strip.crushBits = val;
+        else if (nm === 'downsample' && !isNaN(val)) strip.downsample = val;
+        else if (nm === 'exciter' && !isNaN(val)) strip.exciter = val;
+        else if (nm === 'exciterfreq' && !isNaN(val)) strip.exciterFreq = val;
+        else if (nm === 'haas' && !isNaN(val)) strip.haas = val;
+        else if (nm === 'crossfeed' && !isNaN(val)) strip.crossfeed = val;
+        else if (nm === 'chorus' && !isNaN(val)) strip.chorus = val;
+        else if (nm === 'chorusrate' && !isNaN(val)) strip.chorusRate = val;
+        else if (nm === 'chorusdepth' && !isNaN(val)) strip.chorusDepth = val;
+        else if (nm === 'flanger' && !isNaN(val)) strip.flanger = val;
+        else if (nm === 'flangerrate' && !isNaN(val)) strip.flangerRate = val;
+        else if (nm === 'flangerdepth' && !isNaN(val)) strip.flangerDepth = val;
+        else if (nm === 'flangerfb' && !isNaN(val)) strip.flangerFb = val;
+        else if (nm === 'phaser' && !isNaN(val)) strip.phaser = val;
+        else if (nm === 'phaserrate' && !isNaN(val)) strip.phaserRate = val;
+        else if (nm === 'phaserdepth' && !isNaN(val)) strip.phaserDepth = val;
         continue;
       }
       if (f.length < 4) continue;
       var type = f[0].trim();
-      if (type !== 'lowshelf' && type !== 'peaking' && type !== 'highshelf') continue;
+      if (type !== 'lowshelf' && type !== 'peaking' && type !== 'highshelf' &&
+          type !== 'lowpass' && type !== 'highpass' && type !== 'bandpass' &&
+          type !== 'notch' && type !== 'allpass') continue;
       var freq = parseFloat(f[1]), gain = parseFloat(f[2]), q = parseFloat(f[3]);
       if (isNaN(freq) || isNaN(gain) || isNaN(q)) continue;
       bands.push({ type: type, freq: freq, gain: gain, q: q });
@@ -299,7 +364,17 @@
       engDelayMs = cfg.strip.delayMs || 0; engDelayFb = (cfg.strip.delayFb == null ? 0.3 : cfg.strip.delayFb); engDelayMix = cfg.strip.delayMix || 0;
       engReverbMix = cfg.strip.reverbMix || 0; engRoom = (cfg.strip.room == null ? 0.5 : cfg.strip.room); engDamp = (cfg.strip.damp == null ? 0.5 : cfg.strip.damp);
       engLimit = !!cfg.strip.limit; engCeiling = (cfg.strip.ceiling == null ? -1 : cfg.strip.ceiling);
+      // zdsp-core expansion (older saved specs won't have these — keep defaults).
+      var s = cfg.strip;
+      engGate = (s.gate == null ? -90 : s.gate);
+      engCrushBits = (s.crushBits == null ? 16 : s.crushBits); engDownsample = (s.downsample == null ? 1 : s.downsample);
+      engExciter = s.exciter || 0; engExciterFreq = (s.exciterFreq == null ? 3000 : s.exciterFreq);
+      engHaas = s.haas || 0; engCrossfeed = s.crossfeed || 0;
+      engChorus = s.chorus || 0; engChorusRate = (s.chorusRate == null ? 1.5 : s.chorusRate); engChorusDepth = (s.chorusDepth == null ? 5 : s.chorusDepth);
+      engFlanger = s.flanger || 0; engFlangerRate = (s.flangerRate == null ? 0.5 : s.flangerRate); engFlangerDepth = (s.flangerDepth == null ? 2 : s.flangerDepth); engFlangerFb = (s.flangerFb == null ? 0.3 : s.flangerFb);
+      engPhaser = s.phaser || 0; engPhaserRate = (s.phaserRate == null ? 0.5 : s.phaserRate); engPhaserDepth = (s.phaserDepth == null ? 0.7 : s.phaserDepth);
       if (spaceControls && spaceControls.sync) spaceControls.sync();
+      if (fxControls && fxControls.sync) fxControls.sync();
       if (engControls && engControls.sync) engControls.sync();
       if (typeof threshUnit !== 'undefined' && threshUnit && threshUnit.knob) {
         var tv = Math.max(0, Math.min(1, (engThresh + 60) / 60)); threshUnit.knob.set(tv); if (threshUnit.read) threshUnit.read.textContent = threshUnit.fmt(tv);
@@ -610,7 +685,7 @@
       function (v) { engDamp = v; persistDebounced(); });
     var ceilU = knobUnit('CEILING', (engCeiling + 30) / 30,
       function (v) { return (v * 30 - 30).toFixed(1) + ' dB'; },
-      function (v) { engCeiling = v * 30 - 30; persistDebounced(); });
+      function (v) { engCeiling = v * 30 - 30; engLimit = true; if (limTog && limTog.set) limTog.set(true); persistDebounced(); });
     var row = el('div', 'az-knobs');
     [widthU, delayU, fbU, dmixU, revU, roomU, dampU, ceilU].forEach(function (u) { row.appendChild(u.wrap); });
     var limWrap = el('div'); limWrap.style.alignSelf = 'center';
@@ -635,6 +710,86 @@
       if (limTog && limTog.set) limTog.set(engLimit);
     }
     return { el: Z.card({ title: '// ENGINE SPACE & GLUE  ·  width · delay · reverb · limiter  ·  always-on + saved', body: wrap }).el, sync: sync };
+  })();
+
+  /* ---- ENGINE FX — zdsp-core expansion: dynamics/saturation · spatial · modulation.
+     All engine-side spec directives, always-on + saved, live on every tab. Defaults = bypass. ---- */
+  var fxControls = (function () {
+    var wrap = el('div');
+    var pct = function (v) { return Math.round(v * 100) + '%'; };
+    var hz = function (min, max) { return function (v) { return (min + v * (max - min)).toFixed(2) + ' Hz'; }; };
+    var ms = function (min, max, d) { return function (v) { return (min + v * (max - min)).toFixed(d == null ? 1 : d) + ' ms'; }; };
+    // dynamics / saturation
+    var gateU = knobUnit('GATE', (engGate + 90) / 90,
+      function (v) { var db = v * 90 - 90; return db <= -89.5 ? 'off' : db.toFixed(0) + ' dB'; },
+      function (v) { engGate = v * 90 - 90; persistDebounced(); });
+    var crushU = knobUnit('CRUSH', (16 - engCrushBits) / 15,
+      function (v) { var b = 16 - v * 15; return b >= 15.5 ? 'off' : Math.round(b) + ' bit'; },
+      function (v) { engCrushBits = 16 - v * 15; persistDebounced(); });
+    var decU = knobUnit('DECIMATE', (engDownsample - 1) / 15,
+      function (v) { var n = Math.round(1 + v * 15); return n <= 1 ? 'off' : '×' + n; },
+      function (v) { engDownsample = 1 + v * 15; persistDebounced(); });
+    var excU = knobUnit('EXCITER', engExciter, pct,
+      function (v) { engExciter = v; persistDebounced(); });
+    // spatial
+    var haasU = knobUnit('HAAS', engHaas / 40,
+      function (v) { var m = v * 40; return m < 0.5 ? 'off' : m.toFixed(0) + ' ms'; },
+      function (v) { engHaas = v * 40; persistDebounced(); });
+    var xfeedU = knobUnit('XFEED', engCrossfeed, pct,
+      function (v) { engCrossfeed = v; persistDebounced(); });
+    // modulation — chorus
+    var chorU = knobUnit('CHORUS', engChorus, pct,
+      function (v) { engChorus = v; persistDebounced(); });
+    var chorRU = knobUnit('CH RATE', (engChorusRate - 0.05) / 9.95, hz(0.05, 10),
+      function (v) { engChorusRate = 0.05 + v * 9.95; persistDebounced(); });
+    var chorDU = knobUnit('CH DEPTH', (engChorusDepth - 0.1) / 19.9, ms(0.1, 20),
+      function (v) { engChorusDepth = 0.1 + v * 19.9; persistDebounced(); });
+    // modulation — flanger
+    var flU = knobUnit('FLANGER', engFlanger, pct,
+      function (v) { engFlanger = v; persistDebounced(); });
+    var flRU = knobUnit('FL RATE', (engFlangerRate - 0.05) / 9.95, hz(0.05, 10),
+      function (v) { engFlangerRate = 0.05 + v * 9.95; persistDebounced(); });
+    var flDU = knobUnit('FL DEPTH', (engFlangerDepth - 0.1) / 9.9, ms(0.1, 10),
+      function (v) { engFlangerDepth = 0.1 + v * 9.9; persistDebounced(); });
+    var flFbU = knobUnit('FL FBK', engFlangerFb / 0.95, function (v) { return pct(v * 0.95); },
+      function (v) { engFlangerFb = v * 0.95; persistDebounced(); });
+    // modulation — phaser
+    var phU = knobUnit('PHASER', engPhaser, pct,
+      function (v) { engPhaser = v; persistDebounced(); });
+    var phRU = knobUnit('PH RATE', (engPhaserRate - 0.05) / 9.95, hz(0.05, 10),
+      function (v) { engPhaserRate = 0.05 + v * 9.95; persistDebounced(); });
+    var phDU = knobUnit('PH DEPTH', engPhaserDepth, pct,
+      function (v) { engPhaserDepth = v; persistDebounced(); });
+    var units = [gateU, crushU, decU, excU, haasU, xfeedU,
+      chorU, chorRU, chorDU, flU, flRU, flDU, flFbU, phU, phRU, phDU];
+    var row = el('div', 'az-knobs');
+    units.forEach(function (u) { row.appendChild(u.wrap); });
+    wrap.appendChild(row);
+    wrap.appendChild(el('div', 'az-note',
+      '<b>zdsp-core</b> expansion — <b>dynamics/sat</b> (gate · bit-crush · decimate · exciter) · '
+      + '<b>spatial</b> (Haas widener · headphone cross-feed) · <b>modulation</b> (chorus · flanger · phaser). '
+      + 'Chain: exciter/crush after drive → gate before comp → chorus→flanger→phaser before delay → Haas/cross-feed after reverb. '
+      + 'Engine-side + saved to <b>$STATE/audio-eq</b>, live on every tab. Defaults = bypass.'));
+    function sync() {
+      var set = function (u, v) { var c = Math.max(0, Math.min(1, v)); if (u.knob.set) u.knob.set(c); u.read.textContent = u.fmt(c); };
+      set(gateU, (engGate + 90) / 90);
+      set(crushU, (16 - engCrushBits) / 15);
+      set(decU, (engDownsample - 1) / 15);
+      set(excU, engExciter);
+      set(haasU, engHaas / 40);
+      set(xfeedU, engCrossfeed);
+      set(chorU, engChorus);
+      set(chorRU, (engChorusRate - 0.05) / 9.95);
+      set(chorDU, (engChorusDepth - 0.1) / 19.9);
+      set(flU, engFlanger);
+      set(flRU, (engFlangerRate - 0.05) / 9.95);
+      set(flDU, (engFlangerDepth - 0.1) / 9.9);
+      set(flFbU, engFlangerFb / 0.95);
+      set(phU, engPhaser);
+      set(phRU, (engPhaserRate - 0.05) / 9.95);
+      set(phDU, engPhaserDepth);
+    }
+    return { el: Z.card({ title: '// ENGINE FX  ·  gate · crush · exciter · Haas · cross-feed · chorus · flanger · phaser  ·  always-on + saved', body: wrap }).el, sync: sync };
   })();
 
   /* ---- transport / preview sources ---- */
@@ -712,7 +867,7 @@
   /* ---- assemble ---- */
   var grid = el('div', 'az-grid');
   var left = el('div', 'az-col');
-  [knobsCard, eqCard, engControls, spaceControls, specCard, sgCard, scCard, wfCard, wtCard, transportCard].forEach(function (c) { left.appendChild(c.el); });
+  [knobsCard, eqCard, engControls, spaceControls, fxControls, specCard, sgCard, scCard, wfCard, wtCard, transportCard].forEach(function (c) { left.appendChild(c.el); });
   var right = el('div', 'az-col');
   [metersCard, lufsCard, gonioCard, corrCard, vuCard, masterCard].forEach(function (c) { right.appendChild(c.el); });
   grid.appendChild(left); grid.appendChild(right);

@@ -41,7 +41,7 @@ index 7ee20397dd..767932980d 100644
  #include "base/compiler_specific.h"
  #include "base/feature_list.h"
  #include "base/functional/bind.h"
-@@ -28,8 +29,733 @@
+@@ -28,8 +29,1094 @@
  #include "media/media_buildflags.h"
  #include "services/audio/device_listener_output_stream.h"
  
@@ -122,6 +122,36 @@ index 7ee20397dd..767932980d 100644
 +  double reverb_mix = 0.0;
 +  double reverb_room = 0.5;
 +  double reverb_damp = 0.5;
++  // zdsp-core expansion — dynamics/saturation ------------------------------
++  // Noise gate (thresh very low => bypass): stereo-linked, opens above thresh.
++  double gate_thresh_db = -90.0;   // -90 => effectively open (bypass)
++  double gate_attack_ms = 2.0;
++  double gate_release_ms = 120.0;
++  // Bit-crusher / decimator (bits>=16 && downsample<=1 => bypass).
++  double crush_bits = 16.0;        // quantize depth, 1..16
++  double downsample = 1.0;         // sample&hold rate reduction factor, 1..64
++  // Harmonic exciter (amount<=0 => bypass): high-pass -> soft-clip -> add back.
++  double exciter_amount = 0.0;     // 0..1
++  double exciter_freq = 3000.0;    // high-pass corner, Hz
++  // zdsp-core expansion — spatial ------------------------------------------
++  // Haas widener (ms<=0 => bypass): delays R a few ms for width off mono.
++  double haas_ms = 0.0;            // 0..40
++  // Headphone cross-feed (amount<=0 => bypass): bleed a filtered opposite ch.
++  double crossfeed = 0.0;          // 0..1
++  // zdsp-core expansion — modulation (all mix<=0 => bypass) ------------------
++  // Chorus: LFO-modulated short delay, per-channel, wet/dry blend.
++  double chorus_mix = 0.0;
++  double chorus_rate_hz = 1.5;
++  double chorus_depth_ms = 5.0;
++  // Flanger: LFO-modulated very short delay with feedback.
++  double flanger_mix = 0.0;
++  double flanger_rate_hz = 0.5;
++  double flanger_depth_ms = 2.0;
++  double flanger_feedback = 0.3;
++  // Phaser: cascade of LFO-modulated first-order all-pass stages.
++  double phaser_mix = 0.0;
++  double phaser_rate_hz = 0.5;
++  double phaser_depth = 0.7;       // 0..1 sweep depth
 +  uint64_t generation = 0;
 +};
 +
@@ -196,6 +226,44 @@ index 7ee20397dd..767932980d 100644
 +        cfg->reverb_room = std::clamp(v, 0.0, 1.0);
 +      } else if (f[0] == "damp") {
 +        cfg->reverb_damp = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "gate") {
++        cfg->gate_thresh_db = std::clamp(v, -90.0, 0.0);
++      } else if (f[0] == "gateattack") {
++        cfg->gate_attack_ms = std::clamp(v, 0.1, 200.0);
++      } else if (f[0] == "gaterelease") {
++        cfg->gate_release_ms = std::clamp(v, 1.0, 2000.0);
++      } else if (f[0] == "crush") {
++        cfg->crush_bits = std::clamp(v, 1.0, 16.0);
++      } else if (f[0] == "downsample") {
++        cfg->downsample = std::clamp(v, 1.0, 64.0);
++      } else if (f[0] == "exciter") {
++        cfg->exciter_amount = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "exciterfreq") {
++        cfg->exciter_freq = std::clamp(v, 500.0, 16000.0);
++      } else if (f[0] == "haas") {
++        cfg->haas_ms = std::clamp(v, 0.0, 40.0);
++      } else if (f[0] == "crossfeed") {
++        cfg->crossfeed = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "chorus") {
++        cfg->chorus_mix = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "chorusrate") {
++        cfg->chorus_rate_hz = std::clamp(v, 0.05, 10.0);
++      } else if (f[0] == "chorusdepth") {
++        cfg->chorus_depth_ms = std::clamp(v, 0.1, 20.0);
++      } else if (f[0] == "flanger") {
++        cfg->flanger_mix = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "flangerrate") {
++        cfg->flanger_rate_hz = std::clamp(v, 0.05, 10.0);
++      } else if (f[0] == "flangerdepth") {
++        cfg->flanger_depth_ms = std::clamp(v, 0.1, 10.0);
++      } else if (f[0] == "flangerfb") {
++        cfg->flanger_feedback = std::clamp(v, 0.0, 0.95);
++      } else if (f[0] == "phaser") {
++        cfg->phaser_mix = std::clamp(v, 0.0, 1.0);
++      } else if (f[0] == "phaserrate") {
++        cfg->phaser_rate_hz = std::clamp(v, 0.05, 10.0);
++      } else if (f[0] == "phaserdepth") {
++        cfg->phaser_depth = std::clamp(v, 0.0, 1.0);
 +      }
 +      continue;
 +    }
@@ -205,7 +273,9 @@ index 7ee20397dd..767932980d 100644
 +    ZwireEqBand band;
 +    band.type = std::string(f[0]);
 +    if (band.type != "lowshelf" && band.type != "peaking" &&
-+        band.type != "highshelf") {
++        band.type != "highshelf" && band.type != "lowpass" &&
++        band.type != "highpass" && band.type != "bandpass" &&
++        band.type != "notch" && band.type != "allpass") {
 +      continue;
 +    }
 +    if (!base::StringToDouble(f[1], &band.freq) ||
@@ -305,7 +375,47 @@ index 7ee20397dd..767932980d 100644
 +          const double k = 1.0 + drive_ * 8.0;  // tanh soft-clip, unity-normalized
 +          x = std::tanh(x * k) / std::tanh(k);
 +        }
++        if (exciter_active_ && ch < 2) {
++          // High-pass the signal, soft-clip the high band, add harmonics back.
++          BiquadState& hs = exciter_hp_state_[ch];
++          const Biquad& q = exciter_hp_;
++          const double hp = q.b0 * x + q.b1 * hs.x1 + q.b2 * hs.x2 -
++                            q.a1 * hs.y1 - q.a2 * hs.y2;
++          hs.x2 = hs.x1;
++          hs.x1 = x;
++          hs.y2 = hs.y1;
++          hs.y1 = hp;
++          x += std::tanh(hp * 3.0) * exciter_amt_ * 0.5;
++        }
++        if (crush_active_ && ch < 2) {
++          // Bit-depth quantize + sample&hold rate reduction (lo-fi decimator).
++          if (--crush_hold_count_[ch] <= 0) {
++            crush_hold_count_[ch] = downsample_;
++            crush_hold_val_[ch] = static_cast<float>(
++                std::round(x / crush_step_) * crush_step_);
++          }
++          x = crush_hold_val_[ch];
++        }
 +        data[i] = static_cast<float>(x);
++      }
++    }
++    // Noise gate (zdsp-core dynamics): stereo-linked peak detector; opens toward
++    // unity above the threshold, ducks toward silence below it (attack/release
++    // smoothed). Runs before the compressor so it gates the raw level.
++    if (gate_active_ && channels >= 1) {
++      base::span<float> l = bus->channel(0);
++      base::span<float> r = channels >= 2 ? bus->channel(1) : bus->channel(0);
++      for (int i = 0; i < frames; ++i) {
++        const double peak = std::max(std::fabs(static_cast<double>(l[i])),
++                                     std::fabs(static_cast<double>(r[i])));
++        const double target = peak >= gate_thresh_lin_ ? 1.0 : 0.0;
++        const double coeff =
++            (target > gate_env_) ? gate_attack_coeff_ : gate_release_coeff_;
++        gate_env_ = coeff * gate_env_ + (1.0 - coeff) * target;
++        l[i] = static_cast<float>(l[i] * gate_env_);
++        if (channels >= 2) {
++          r[i] = static_cast<float>(r[i] * gate_env_);
++        }
 +      }
 +    }
 +    // Stereo-linked feed-forward compressor (ratio<=1 => bypass). Peak detector
@@ -332,6 +442,44 @@ index 7ee20397dd..767932980d 100644
 +        }
 +      }
 +    }
++    // Modulation (zdsp-core): chorus/flanger (LFO-swept fractional delay) then
++    // phaser (LFO-swept all-pass cascade). One LFO phase per effect, advanced
++    // once per frame so both channels share a coherent sweep.
++    if (chorus_active_ || flanger_active_ || phaser_active_) {
++      const int nc = std::min(channels, 2);
++      base::span<float> ch0 = bus->channel(0);
++      base::span<float> ch1 = channels >= 2 ? bus->channel(1) : bus->channel(0);
++      for (int i = 0; i < frames; ++i) {
++        const double cl = 0.5 - 0.5 * std::cos(2.0 * M_PI * chorus_phase_);
++        const double fl = 0.5 - 0.5 * std::cos(2.0 * M_PI * flanger_phase_);
++        const double pl = 0.5 - 0.5 * std::cos(2.0 * M_PI * phaser_phase_);
++        const float pg = static_cast<float>(0.1 + phaser_depth_ * 0.8 * pl);
++        for (int ch = 0; ch < nc; ++ch) {
++          base::span<float> d = ch == 0 ? ch0 : ch1;
++          float x = d[i];
++          if (chorus_active_) {
++            x = chorus_[ch].Process(x, chorus_base_s_ + cl * chorus_depth_s_);
++          }
++          if (flanger_active_) {
++            x = flanger_[ch].Process(x, flanger_base_s_ + fl * flanger_depth_s_);
++          }
++          if (phaser_active_) {
++            float wet = x;
++            for (int s = 0; s < kPhaserStages; ++s) {
++              wet = phaser_stages_[ch][s].Process(wet, pg);
++            }
++            x = x * (1.f - phaser_mix_) + wet * phaser_mix_;
++          }
++          d[i] = x;
++        }
++        chorus_phase_ += chorus_rate_;
++        if (chorus_phase_ >= 1.0) chorus_phase_ -= 1.0;
++        flanger_phase_ += flanger_rate_;
++        if (flanger_phase_ >= 1.0) flanger_phase_ -= 1.0;
++        phaser_phase_ += phaser_rate_;
++        if (phaser_phase_ >= 1.0) phaser_phase_ -= 1.0;
++      }
++    }
 +    // Time FX: stereo feedback delay/echo then Schroeder reverb, each an
 +    // independent per-channel path (bypassed unless enabled). State + buffers are
 +    // owned per stream, so every stream gets its own echo/tail.
@@ -349,6 +497,35 @@ index 7ee20397dd..767932980d 100644
 +          }
 +          d[i] = x;
 +        }
++      }
++    }
++    // Haas widener (zdsp-core spatial): delay R by a few ms so a mono/centered
++    // source gains stereo width (classic precedence-effect widener).
++    if (haas_active_ && channels >= 2) {
++      base::span<float> r = bus->channel(1);
++      for (int i = 0; i < frames; ++i) {
++        const float d = haas_buf_[haas_pos_];
++        haas_buf_[haas_pos_] = r[i];
++        r[i] = d;
++        if (++haas_pos_ >= haas_buf_.size()) {
++          haas_pos_ = 0;
++        }
++      }
++    }
++    // Headphone cross-feed (zdsp-core spatial): bleed a one-pole-lowpassed copy
++    // of each channel into the other to relax hard-panned stereo on headphones.
++    if (crossfeed_active_ && channels >= 2) {
++      base::span<float> l = bus->channel(0);
++      base::span<float> r = bus->channel(1);
++      const float a = static_cast<float>(crossfeed_amt_);
++      const float norm = 1.f / (1.f + a);
++      for (int i = 0; i < frames; ++i) {
++        cf_lp_[0] += cf_coeff_ * (r[i] - cf_lp_[0]);
++        cf_lp_[1] += cf_coeff_ * (l[i] - cf_lp_[1]);
++        const float nl = (l[i] + a * cf_lp_[0]) * norm;
++        const float nr = (r[i] + a * cf_lp_[1]) * norm;
++        l[i] = nl;
++        r[i] = nr;
 +      }
 +    }
 +    // Stereo strip (zdsp channel_strip.h): M/S width, then mono fold, else
@@ -494,6 +671,44 @@ index 7ee20397dd..767932980d 100644
 +      return in * (1.f - mix) + out * mix;
 +    }
 +  };
++  // Modulated fractional-delay line (chorus/flanger). A time-varying read tap is
++  // linearly interpolated; `fb` feeds output back for flanging (0 for chorus).
++  struct ModDelay {
++    std::vector<float> buf;
++    size_t pos = 0;
++    float fb = 0.f, mix = 0.f;
++    void Init(int maxlen, double feedback, double m) {
++      buf.assign(static_cast<size_t>(std::max(4, maxlen)), 0.f);
++      pos = 0;
++      fb = static_cast<float>(feedback);
++      mix = static_cast<float>(m);
++    }
++    float Process(float in, double delay_samples) {
++      const double n = static_cast<double>(buf.size());
++      double rp = static_cast<double>(pos) - delay_samples;
++      while (rp < 0) rp += n;
++      const size_t i0 = static_cast<size_t>(rp) % buf.size();
++      const size_t i1 = (i0 + 1) % buf.size();
++      const double frac = rp - std::floor(rp);
++      const float d = static_cast<float>((1.0 - frac) * buf[i0] + frac * buf[i1]);
++      buf[pos] = in + d * fb;
++      if (++pos >= buf.size()) {
++        pos = 0;
++      }
++      return in * (1.f - mix) + d * mix;
++    }
++  };
++  // First-order all-pass stage (phaser). Transposed direct form; `g` is the
++  // LFO-swept coefficient. Cascading N stages makes N spectral notches sweep.
++  struct AllpassStage {
++    float x1 = 0.f, y1 = 0.f;
++    float Process(float in, float g) {
++      const float y = -g * in + x1 + g * y1;
++      x1 = in;
++      y1 = y;
++      return y;
++    }
++  };
 +
 +  // Recompute this stream's biquad cascade for its own sample rate from the new
 +  // config snapshot; keep it stateful across the swap by resizing filter memory.
@@ -533,6 +748,84 @@ index 7ee20397dd..767932980d 100644
 +                      cfg.reverb_mix, 0);
 +      reverb_[1].Init(sample_rate_, cfg.reverb_room, cfg.reverb_damp,
 +                      cfg.reverb_mix, 23);
++    }
++    // Noise gate.
++    gate_active_ = cfg.gate_thresh_db > -89.5;
++    gate_thresh_lin_ = std::pow(10.0, cfg.gate_thresh_db / 20.0);
++    gate_attack_coeff_ = std::exp(
++        -1.0 / std::max(1.0, cfg.gate_attack_ms * 0.001 * sample_rate_));
++    gate_release_coeff_ = std::exp(
++        -1.0 / std::max(1.0, cfg.gate_release_ms * 0.001 * sample_rate_));
++    // Bit-crusher / decimator: active when reducing depth or rate.
++    downsample_ = std::max(1, static_cast<int>(std::lround(cfg.downsample)));
++    crush_active_ = cfg.crush_bits < 15.5 || downsample_ > 1;
++    crush_step_ = std::pow(2.0, 1.0 - cfg.crush_bits);  // signed quantum
++    for (int ch = 0; ch < 2; ++ch) {
++      crush_hold_count_[ch] = 0;
++      crush_hold_val_[ch] = 0.f;
++    }
++    // Harmonic exciter: RBJ high-pass whose highs are soft-clipped + mixed back.
++    exciter_active_ = cfg.exciter_amount > 1e-4;
++    exciter_amt_ = cfg.exciter_amount;
++    if (exciter_active_) {
++      const double w0 = 2.0 * M_PI * cfg.exciter_freq / sample_rate_;
++      const double cw = std::cos(w0), sw = std::sin(w0);
++      const double alpha = sw / (2.0 * 0.707);
++      const double a0 = 1 + alpha;
++      exciter_hp_ = Biquad{(1 + cw) / 2 / a0, -(1 + cw) / a0, (1 + cw) / 2 / a0,
++                           -2 * cw / a0, (1 - alpha) / a0};
++      for (int ch = 0; ch < 2; ++ch) {
++        exciter_hp_state_[ch] = BiquadState{};
++      }
++    }
++    // Haas widener: R delayed by haas_ms (buffer sized to the exact delay).
++    haas_active_ = cfg.haas_ms > 1e-3;
++    if (haas_active_) {
++      const int n = std::max(
++          1, static_cast<int>(std::lround(cfg.haas_ms * 0.001 * sample_rate_)));
++      haas_buf_.assign(static_cast<size_t>(n), 0.f);
++      haas_pos_ = 0;
++    }
++    // Headphone cross-feed: one-pole lowpass (~700 Hz) on the bled channel.
++    crossfeed_active_ = cfg.crossfeed > 1e-4;
++    crossfeed_amt_ = cfg.crossfeed;
++    cf_coeff_ =
++        static_cast<float>(1.0 - std::exp(-2.0 * M_PI * 700.0 / sample_rate_));
++    cf_lp_[0] = cf_lp_[1] = 0.f;
++    // Chorus / flanger: (re)size the modulated delay lines to base+depth.
++    chorus_active_ = cfg.chorus_mix > 1e-4;
++    if (chorus_active_) {
++      chorus_rate_ = cfg.chorus_rate_hz / sample_rate_;
++      chorus_base_s_ = 0.010 * sample_rate_;
++      chorus_depth_s_ = cfg.chorus_depth_ms * 0.001 * sample_rate_;
++      const int maxd =
++          static_cast<int>(std::ceil(chorus_base_s_ + chorus_depth_s_)) + 4;
++      for (int ch = 0; ch < 2; ++ch) {
++        chorus_[ch].Init(maxd, 0.0, cfg.chorus_mix);
++      }
++    }
++    flanger_active_ = cfg.flanger_mix > 1e-4;
++    if (flanger_active_) {
++      flanger_rate_ = cfg.flanger_rate_hz / sample_rate_;
++      flanger_base_s_ = 0.001 * sample_rate_;
++      flanger_depth_s_ = cfg.flanger_depth_ms * 0.001 * sample_rate_;
++      const int maxd =
++          static_cast<int>(std::ceil(flanger_base_s_ + flanger_depth_s_)) + 4;
++      for (int ch = 0; ch < 2; ++ch) {
++        flanger_[ch].Init(maxd, cfg.flanger_feedback, cfg.flanger_mix);
++      }
++    }
++    // Phaser: LFO-swept all-pass cascade (state reset on (re)engage).
++    phaser_active_ = cfg.phaser_mix > 1e-4;
++    phaser_mix_ = static_cast<float>(cfg.phaser_mix);
++    phaser_rate_ = cfg.phaser_rate_hz / sample_rate_;
++    phaser_depth_ = cfg.phaser_depth;
++    if (phaser_active_) {
++      for (int ch = 0; ch < 2; ++ch) {
++        for (int s = 0; s < kPhaserStages; ++s) {
++          phaser_stages_[ch][s] = AllpassStage{};
++        }
++      }
 +    }
 +    biquads_.clear();
 +    for (const ZwireEqBand& band : cfg.bands) {
@@ -582,6 +875,41 @@ index 7ee20397dd..767932980d 100644
 +      a0 = (A + 1) - (A - 1) * cw + s;
 +      a1 = 2 * ((A - 1) - (A + 1) * cw);
 +      a2 = (A + 1) - (A - 1) * cw - s;
++    } else if (band.type == "lowpass") {
++      b0 = (1 - cw) / 2;
++      b1 = 1 - cw;
++      b2 = (1 - cw) / 2;
++      a0 = 1 + alpha;
++      a1 = -2 * cw;
++      a2 = 1 - alpha;
++    } else if (band.type == "highpass") {
++      b0 = (1 + cw) / 2;
++      b1 = -(1 + cw);
++      b2 = (1 + cw) / 2;
++      a0 = 1 + alpha;
++      a1 = -2 * cw;
++      a2 = 1 - alpha;
++    } else if (band.type == "bandpass") {  // 0 dB peak gain (CPG)
++      b0 = alpha;
++      b1 = 0;
++      b2 = -alpha;
++      a0 = 1 + alpha;
++      a1 = -2 * cw;
++      a2 = 1 - alpha;
++    } else if (band.type == "notch") {
++      b0 = 1;
++      b1 = -2 * cw;
++      b2 = 1;
++      a0 = 1 + alpha;
++      a1 = -2 * cw;
++      a2 = 1 - alpha;
++    } else if (band.type == "allpass") {
++      b0 = 1 - alpha;
++      b1 = -2 * cw;
++      b2 = 1 + alpha;
++      a0 = 1 + alpha;
++      a1 = -2 * cw;
++      a2 = 1 - alpha;
 +    } else {
 +      return;
 +    }
@@ -613,6 +941,39 @@ index 7ee20397dd..767932980d 100644
 +  bool reverb_active_ = false;
 +  DelayLine delay_[2];
 +  Reverb reverb_[2];
++  // zdsp-core expansion — dynamics/saturation.
++  bool gate_active_ = false;
++  double gate_thresh_lin_ = 0.0;
++  double gate_attack_coeff_ = 0.0, gate_release_coeff_ = 0.0;
++  double gate_env_ = 1.0;
++  bool crush_active_ = false;
++  double crush_step_ = 0.0;
++  int downsample_ = 1;
++  int crush_hold_count_[2] = {0, 0};
++  float crush_hold_val_[2] = {0.f, 0.f};
++  bool exciter_active_ = false;
++  double exciter_amt_ = 0.0;
++  Biquad exciter_hp_ = {1, 0, 0, 0, 0};
++  BiquadState exciter_hp_state_[2];
++  // zdsp-core expansion — spatial.
++  bool haas_active_ = false;
++  std::vector<float> haas_buf_;
++  size_t haas_pos_ = 0;
++  bool crossfeed_active_ = false;
++  double crossfeed_amt_ = 0.0;
++  float cf_coeff_ = 0.f;
++  float cf_lp_[2] = {0.f, 0.f};
++  // zdsp-core expansion — modulation.
++  static constexpr int kPhaserStages = 4;
++  bool chorus_active_ = false, flanger_active_ = false, phaser_active_ = false;
++  ModDelay chorus_[2], flanger_[2];
++  double chorus_phase_ = 0.0, chorus_rate_ = 0.0;
++  double chorus_base_s_ = 0.0, chorus_depth_s_ = 0.0;
++  double flanger_phase_ = 0.0, flanger_rate_ = 0.0;
++  double flanger_base_s_ = 0.0, flanger_depth_s_ = 0.0;
++  double phaser_phase_ = 0.0, phaser_rate_ = 0.0, phaser_depth_ = 0.0;
++  float phaser_mix_ = 0.f;
++  AllpassStage phaser_stages_[2][kPhaserStages];
 +  std::vector<Biquad> biquads_;
 +  std::vector<std::vector<BiquadState>> state_;
 +};
@@ -775,7 +1136,7 @@ index 7ee20397dd..767932980d 100644
  namespace {
  
  // Requests data before reading in OutputController::OnMoreData, which may
-@@ -167,6 +893,8 @@ OutputController::OutputController(
+@@ -167,6 +1254,8 @@ OutputController::OutputController(
      : id_(base::UnguessableToken::Create()),
        audio_manager_(audio_manager),
        params_(params),
@@ -784,7 +1145,7 @@ index 7ee20397dd..767932980d 100644
        managed_device_output_stream_create_callback_(
            std::move(managed_device_output_stream_create_callback)),
        handler_(handler),
-@@ -483,6 +1211,20 @@ int OutputController::OnMoreData(base::TimeDelta delay,
+@@ -483,6 +1572,20 @@ int OutputController::OnMoreData(base::TimeDelta delay,
  
    const bool received_data = sync_reader_->Read(dest, is_mixing);
  

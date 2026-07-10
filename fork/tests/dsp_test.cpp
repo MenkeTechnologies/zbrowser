@@ -258,6 +258,139 @@ int main() {
     check("full chain: no NaN/Inf across 8 blocks with everything engaged", ok);
   }
 
+  // 8) Lowpass filter: a 12 kHz tone is heavily attenuated vs bypass.
+  {
+    const int N = 4096;
+    auto con = mkcfg();
+    con->bands.push_back(ZwireEqBand{"lowpass", 500.0, 0.0, 0.707});
+    g_cfg = con;
+    ZwireAudioEq eqOn(SR, CH);
+    media::AudioBus on(CH, N);
+    fill_sine(on, 12000.0, SR, 0.5);
+    eqOn.Process(&on);
+    auto coff = mkcfg();
+    g_cfg = coff;
+    ZwireAudioEq eqOff(SR, CH);
+    media::AudioBus off(CH, N);
+    fill_sine(off, 12000.0, SR, 0.5);
+    eqOff.Process(&off);
+    double on_rms = rms(on, 0, 1024, N), off_rms = rms(off, 0, 1024, N);
+    std::printf("       lp_on_rms=%.6f lp_off_rms=%.6f\n", on_rms, off_rms);
+    check("lowpass: 12kHz tone attenuated below 25% of bypass",
+          on_rms < off_rms * 0.25);
+  }
+
+  // 9) Notch filter: a tone at the notch frequency is strongly attenuated.
+  {
+    const int N = 8192;
+    auto c = mkcfg();
+    c->bands.push_back(ZwireEqBand{"notch", 1000.0, 0.0, 3.0});
+    g_cfg = c;
+    ZwireAudioEq eq(SR, CH);
+    media::AudioBus out(CH, N);
+    fill_sine(out, 1000.0, SR, 0.5);
+    eq.Process(&out);
+    double tail = rms(out, 0, 4096, N);  // settled
+    std::printf("       notch_tail_rms=%.6f\n", tail);
+    check("notch: on-frequency tone attenuated below 10% of input",
+          tail < 0.05);
+  }
+
+  // 10) Noise gate: a signal below threshold is ducked toward silence; a loud
+  //     one passes. gate_env starts open, so measure the settled release tail.
+  {
+    const int N = 24000;  // ~0.5s, past the 120ms release
+    auto c = mkcfg();
+    c->gate_thresh_db = -40.0;
+    g_cfg = c;
+    ZwireAudioEq eq(SR, CH);
+    media::AudioBus quiet(CH, N);
+    fill_sine(quiet, 300.0, SR, 0.003);  // ~ -50 dB, below the gate
+    eq.Process(&quiet);
+    double gated = rms(quiet, 0, N - 4096, N);  // settled tail
+    // loud signal (well above thresh) stays essentially unity through the gate.
+    auto c2 = mkcfg();
+    c2->gate_thresh_db = -40.0;
+    g_cfg = c2;
+    ZwireAudioEq eq2(SR, CH);
+    media::AudioBus loud(CH, N);
+    fill_sine(loud, 300.0, SR, 0.5);
+    eq2.Process(&loud);
+    double open = rms(loud, 0, N - 4096, N);
+    std::printf("       gate_quiet_rms=%.8f gate_loud_rms=%.6f\n", gated, open);
+    check("gate: sub-threshold signal ducked, supra-threshold passes",
+          gated < 3e-4 && open > 0.3);
+  }
+
+  // 11) Bit-crusher / decimator: downsample changes the signal (not identity)
+  //     and stays bounded (no runaway).
+  {
+    const int N = 2048;
+    auto c = mkcfg();
+    c->downsample = 4.0;
+    c->crush_bits = 6.0;
+    g_cfg = c;
+    ZwireAudioEq eq(SR, CH);
+    media::AudioBus out(CH, N), ref(CH, N);
+    fill_sine(out, 440.0, SR, 0.5);
+    fill_sine(ref, 440.0, SR, 0.5);
+    eq.Process(&out);
+    bool changed = false, bounded = true;
+    for (int i = 0; i < N; ++i) {
+      if (out.channel(0)[i] != ref.channel(0)[i]) changed = true;
+      if (std::fabs(out.channel(0)[i]) > 1.2f) bounded = false;
+    }
+    check("bit-crush: alters the signal and stays bounded", changed && bounded);
+  }
+
+  // 12) Haas widener: a mono input becomes decorrelated (R is a delayed copy),
+  //     so L and R diverge after processing.
+  {
+    const int N = 4096;
+    auto c = mkcfg();
+    c->haas_ms = 20.0;
+    g_cfg = c;
+    ZwireAudioEq eq(SR, CH);
+    media::AudioBus out(CH, N);
+    // 437 Hz: its period (~109.8 samples) does not divide the 20ms (960-sample)
+    // Haas delay, so the delayed R genuinely diverges from L (a period-aligned
+    // tone would map back onto itself and hide the effect).
+    fill_sine(out, 437.0, SR, 0.5);  // identical L/R (mono)
+    eq.Process(&out);
+    double diff = 0;
+    for (int i = 2000; i < N; ++i)
+      diff += std::fabs(out.channel(0)[i] - out.channel(1)[i]);
+    std::printf("       haas_LR_divergence=%.4f\n", diff);
+    check("haas: mono input decorrelates into distinct L/R", diff > 1.0);
+  }
+
+  // 13) Modulation (chorus+flanger+phaser): engaged together, output is finite,
+  //     non-silent, and differs from the dry input.
+  {
+    const int N = 4096;
+    auto c = mkcfg();
+    c->chorus_mix = 0.5;
+    c->flanger_mix = 0.5;
+    c->flanger_feedback = 0.4;
+    c->phaser_mix = 0.6;
+    g_cfg = c;
+    ZwireAudioEq eq(SR, CH);
+    media::AudioBus out(CH, N), ref(CH, N);
+    fill_sine(out, 600.0, SR, 0.5);
+    fill_sine(ref, 600.0, SR, 0.5);
+    eq.Process(&out);
+    bool finite = true, changed = false;
+    for (int i = 0; i < N; ++i) {
+      if (!std::isfinite(out.channel(0)[i])) finite = false;
+      if (std::fabs(out.channel(0)[i] - ref.channel(0)[i]) > 1e-4f)
+        changed = true;
+    }
+    double e = rms(out, 0, 1024, N);
+    std::printf("       mod_rms=%.6f\n", e);
+    check("modulation: chorus+flanger+phaser finite, non-silent, alters signal",
+          finite && changed && e > 1e-3);
+  }
+
   std::printf("\n%s (%d failure%s)\n", g_fails == 0 ? "ALL PASS" : "FAILURES",
               g_fails, g_fails == 1 ? "" : "s");
   return g_fails == 0 ? 0 : 1;

@@ -31,8 +31,9 @@ workspace layered on top:
 - **8 color schemes** — each with a **light variant** — that drive the browser
   chrome natively, with a light/dark toggle that syncs across the HUD, new-tab
   page, and `zpwrchrome` instantly;
-- a **browser-wide audio engine** — an always-on parametric output EQ + gain /
-  drive / pan compiled into the audio service (every tab, live-reconfigurable
+- a **browser-wide audio engine** — an always-on zdsp-core chain (parametric EQ +
+  channel strip + saturation/dynamics + modulation + time FX + spatial + limiter)
+  compiled into the audio service (every tab, live-reconfigurable
   with nothing open) plus a live **Audio HUD page** with real post-DSP spectrum
   and meters;
 - **lifecycle hooks** — a **Hooks HUD page** that binds
@@ -140,12 +141,28 @@ up front — the new-tab page stays untouched.
 
 **Audio (`pages/audio.html`).** A live audio dashboard over a browser-wide DSP
 engine the fork compiles into the audio service (patches 0022–0024): an always-on
-parametric EQ cascade + preamp / gain / drive / equal-power pan / mono-fold
-applied to **every** output stream (media element, MSE/YouTube, Web Audio,
-WebRTC) before the OS device, live-reconfigurable with nothing open and no
-relaunch. The page renders the **real post-DSP output** — Goertzel spectrum bars,
-peak/RMS meters, phase correlation, and a stereo scope — pumped back over the
-native host (no `tabCapture`, so watching the meters never touches the audio).
+**zdsp-core** chain applied to **every** output stream (media element, MSE/YouTube,
+Web Audio, WebRTC) before the OS device, live-reconfigurable with nothing open and
+no relaunch. The chain, in order:
+
+- **EQ** — preamp + RBJ-biquad cascade; band types `lowshelf` · `peaking` ·
+  `highshelf` · `lowpass` · `highpass` · `bandpass` · `notch` · `allpass`.
+- **Channel strip** — gain · drive (tanh soft-clip) · equal-power pan · mono-fold.
+- **Saturation / dynamics** — harmonic exciter · bit-crusher + decimator · noise
+  gate · stereo-linked feed-forward compressor.
+- **Modulation** — chorus · flanger (with feedback) · phaser (LFO-swept all-pass
+  cascade), each with rate/depth controls.
+- **Time** — stereo feedback delay/echo · reduced-Freeverb reverb.
+- **Spatial** — Haas widener · headphone cross-feed · M/S stereo width.
+- **Limiter** — brickwall peak limiter, dead-last so nothing re-clips.
+
+Every block is unity/bypass by default and per-stream (own buffers), so the engine
+stays bit-identical passthrough until a control is engaged. The page renders the
+**real post-DSP output** — Goertzel spectrum bars, peak/RMS meters, phase
+correlation, and a stereo scope — pumped back over the native host (no
+`tabCapture`, so watching the meters never touches the audio). DSP correctness is
+pinned by `fork/tests/run_dsp_tests.sh`, which extracts the engine straight from
+patch 0022 and asserts per-effect invariants.
 
 **`zgui-core` — the shared GUI toolkit (`lib/zgui-core`, submodule).** The HUD is
 not hand-rolled per page; it is assembled from **`ZGui`**, a cyberpunk web-component
@@ -278,7 +295,8 @@ content script can call `chrome.*` mid-navigation on the store without tripping 
 script-block so content scripts + `executeScript` run on the Web Store domains
 (`chrome_extensions_client.cc`). One forces immediate ⌘Q (no hold-to-quit)
 (`app_controller_mac.mm`). The last three are the **audio engine**: an always-on
-parametric output EQ + gain / drive / pan compiled into the audio service so
+zdsp-core chain (EQ + channel strip + saturation/dynamics + modulation + time FX +
+spatial + limiter) compiled into the audio service so
 *every* stream is processed before the OS device (`output_controller.cc` +
 `chrome_content_browser_client.cc`), tab-capture with no picker so the Audio page
 can analyze a playing tab (`tab_capture_api.cc`), and live EQ reconfiguration +
