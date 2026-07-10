@@ -55,21 +55,27 @@
   function canvas(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; c.className = 'az-canvas'; return c; }
 
   /* ---------------------------------------------------------------- EQ model ---------------------- */
+  // 8 bands (Ableton EQ Eight layout): a low shelf, six bells, a high shelf,
+  // all flat (gain 0 = transparent) by default. Right-click a node to re-type it
+  // (e.g. band 1 -> high-pass, band 8 -> low-pass) like EQ Eight's band selectors.
   function flat() {
     return [
-      { type: 'lowshelf', freq: 80, gain: 0, q: 0.7 },
-      { type: 'peaking', freq: 250, gain: 0, q: 1.0 },
-      { type: 'peaking', freq: 1000, gain: 0, q: 1.0 },
-      { type: 'peaking', freq: 4000, gain: 0, q: 1.0 },
+      { type: 'lowshelf', freq: 60, gain: 0, q: 0.7 },
+      { type: 'peaking', freq: 120, gain: 0, q: 1.0 },
+      { type: 'peaking', freq: 300, gain: 0, q: 1.0 },
+      { type: 'peaking', freq: 700, gain: 0, q: 1.0 },
+      { type: 'peaking', freq: 1600, gain: 0, q: 1.0 },
+      { type: 'peaking', freq: 3500, gain: 0, q: 1.0 },
+      { type: 'peaking', freq: 7000, gain: 0, q: 1.0 },
       { type: 'highshelf', freq: 12000, gain: 0, q: 0.7 }
     ];
   }
   var PRESETS = {
-    'Flat': [0, 0, 0, 0, 0],
-    'Bass Boost': [6, 2, 0, 0, 0],
-    'Loudness': [5, 0, -2, 1, 5],
-    'Vocal': [-3, -1, 3, 4, 1],
-    'Scoop': [3, -1, -5, -1, 3]
+    'Flat': [0, 0, 0, 0, 0, 0, 0, 0],
+    'Bass Boost': [6, 4, 1, 0, 0, 0, 0, 0],
+    'Loudness': [5, 3, 0, -1, -2, 0, 3, 5],
+    'Vocal': [-3, -2, -1, 1, 3, 4, 2, 1],
+    'Scoop': [3, 2, 0, -3, -5, -2, 2, 3]
   };
 
   /* ---------------------------------------------------------------- Web Audio engine (local) ----- */
@@ -618,7 +624,7 @@
     onChange: function () { if (ctx) syncFilters(eq.get()); persistDebounced(); }
   });
   eqWrap.appendChild(eq.el);
-  var eqCard = Z.card({ title: '// PARAMETRIC EQ  ·  drag nodes  ·  live FFT overlay', body: eqWrap });
+  var eqCard = Z.card({ title: '// PARAMETRIC EQ (EQ8)  ·  8 bands · drag · alt-drag/scroll Q · right-click type · dbl-click reset', body: eqWrap });
 
   /* ---- ENGINE STRIP — controls that modify the ALWAYS-ON browser-wide C++
      engine. Saved to appdata ($STATE/audio-eq) and applied to every tab live,
