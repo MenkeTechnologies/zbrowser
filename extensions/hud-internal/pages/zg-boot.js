@@ -425,12 +425,10 @@
         });
       } catch (e) {}
       document.addEventListener('keydown', function (e) {
-        var ae = document.activeElement || {};
-        var inField = /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName || '') || ae.isContentEditable;
+        // ⌘/Ctrl-K toggles the palette. (The vim-style bare ':' palette shortcut was removed — it
+        // stole the colon in the stryke code editor, where `::` / `1:10` / `key:` are everywhere.)
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !e.altKey && !e.shiftKey) {
           e.preventDefault(); ZGui.palette.isOpen() ? ZGui.palette.close() : openPal();
-        } else if (e.key === ':' && !inField && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          e.preventDefault(); openPal();
         }
       }, true);
     }

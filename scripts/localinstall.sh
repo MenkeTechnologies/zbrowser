@@ -158,6 +158,16 @@ if [ -f "$VER_JS" ]; then
   cyber_ok "version // stamped System page → v$VERSION"
 fi
 
+# Stamp the extension manifest version too. Chrome keys MV3 service-worker updates on the
+# manifest "version": if it never changes, a reinstall keeps the CACHED old service worker
+# (host binary updates, background.js does not). Stamping it from package.json means every
+# bumped release forces Chrome to reload the extension + refresh the worker.
+MANIFEST_JSON="$RES/ext/hud-internal/manifest.json"
+if [ -f "$MANIFEST_JSON" ]; then
+  perl -i -pe "s/(\"version\"\s*:\s*)\"[^\"]*\"/\${1}\"$VERSION\"/ if \$. < 12" "$MANIFEST_JSON"
+  cyber_ok "version // stamped extension manifest → v$VERSION"
+fi
+
 # 3) the native host — a single self-contained Rust binary (no python/psutil)
 cp "$HOST_BIN" "$RES/native/zwire-host"
 chmod +x "$RES/native/zwire-host"

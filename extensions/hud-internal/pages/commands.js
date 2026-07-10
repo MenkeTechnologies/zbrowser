@@ -82,6 +82,20 @@
   // .show(msg, dur, type) so error/success toasts actually render (a bare
   // Z.toast(m) threw and got swallowed, so no toast ever appeared here).
   function toast(m, type) { try { if (Z.toast && Z.toast.show) Z.toast.show(m, 2600, type || ''); else if (window.showToast) window.showToast(m); } catch (e) {} }
+  // Pull a browser.* action the host queued in its KV (the cross-process channel a `browser.*`
+  // App::open call writes to) and hand it to the shared zb_cmd executor by writing chrome.storage.
+  // Same-process, no reliance on the sysinfo poll — so `▶ Run` fires tabs/windows immediately.
+  function drainZbAction() {
+    try {
+      chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_get', app: 'zwire', key: '__zbus_action' }, function (r) {
+        if (chrome.runtime.lastError) { void chrome.runtime.lastError; return; }
+        var v = r && r.value; if (!v || !v.a) return;
+        var q = {}; for (var k in v) { if (k !== '_n') q[k] = v[k]; } q._zbn = v._n || 1;
+        try { chrome.storage.local.set({ zb_cmd: q }); } catch (e) {}
+        try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_del', app: 'zwire', key: '__zbus_action' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      });
+    } catch (e) {}
+  }
   function persist(cb) {
     try { var o = {}; o[KEY] = cmds; chrome.storage.local.set(o, function () { void chrome.runtime.lastError; if (cb) cb(); }); }
     catch (e) { if (cb) cb(); }
@@ -212,6 +226,10 @@
         runBtn.disabled = true;
         chrome.runtime.sendNativeMessage(HOST, { cmd: 'stryke_run', code: code }, function (reply) {
           runBtn.disabled = false;
+          // Drain any browser.* action the script queued into the host KV. Runs from this HUD page
+          // (which has chrome.tabs/storage) so the tab/window op fires even if the background worker
+          // is asleep or running a stale build — writing zb_cmd wakes it and its onChanged executor runs.
+          drainZbAction();
           if (chrome.runtime.lastError) { toast('run: ' + chrome.runtime.lastError.message, 'error'); return; }
           var r = reply || {};
           if (r.ok === false) { toast('stryke: ' + (r.err || 'failed'), 'error'); return; }
