@@ -629,7 +629,12 @@
   function knobUnit(label, value, fmt, onChange) {
     var wrap = el('div', 'az-knob');
     var read = el('div', 'az-read', fmt(value));
-    var k = Z.knob({ value: value, label: label, size: 58, onChange: function (v) { read.textContent = fmt(v); onChange(v); } });
+    // The build-time `value` is the neutral default (page constructs with default
+    // eng* state; saved specs apply later via .set() without rebuilding), so pass
+    // it as `default` — the knob widget's double-click-to-reset lands there
+    // instead of 0 (0 = silence/mono-collapse/etc. for most knobs).
+    var k = Z.knob({ value: value, default: value, label: label, size: 58, onChange: function (v) { read.textContent = fmt(v); onChange(v); } });
+    k.el.title = 'double-click to reset';
     wrap.appendChild(k.el); wrap.appendChild(read);
     return { wrap: wrap, knob: k, read: read, fmt: fmt };
   }
