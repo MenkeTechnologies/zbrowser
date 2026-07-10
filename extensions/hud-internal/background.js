@@ -46,11 +46,10 @@ function drainZbAction() {
     chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_get', app: 'zwire', key: '__zbus_action' }, function (r) {
       if (chrome.runtime.lastError) { void chrome.runtime.lastError; return; }
       var v = r && r.value; if (!v || !v.a) return;
-      var n = +v._n || 0; if (n <= (self._zbLastN || 0)) return;   // dedup vs the sysinfo poll
-      self._zbLastN = n;
-      var q = {}; for (var k in v) { if (k !== '_n') q[k] = v[k]; } q._zbn = n;
-      try { chrome.storage.local.set({ zb_cmd: q }); } catch (e) {}
+      // Delete FIRST (single-consume), then execute directly — no storage.onChanged dedup, no
+      // _zbLastN guard that could get stuck and silence every run after the first.
       try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'kv_del', app: 'zwire', key: '__zbus_action' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      execZbCmd(v);
     });
   } catch (e) {}
 }
@@ -482,10 +481,13 @@ try {
 // Command bus: content scripts write zb_cmd to storage; storage.onChanged is a
 // reliable MV3 wakeup (unlike sendMessage to a sleeping worker), so palette
 // navigation / tab-switching always executes.
-chrome.storage.onChanged.addListener(function (changes, area) {
-  if (area !== 'local') return;
-  if (!changes.zb_cmd || !changes.zb_cmd.newValue) return;
-  var c = changes.zb_cmd.newValue;
+// The single browser-action executor. Reached three ways: the zb_cmd storage bus (content-script
+// commands), a direct { type:'zbExec' } runtime message (HUD-page drains), and the SW drain. Direct
+// calls beat the storage path because storage.onChanged only fires on an actual value CHANGE — a
+// repeated action wrote to zb_cmd with the same shape can silently not re-fire ("worked 1x then
+// stopped"). Executing directly removes that dependency entirely.
+function execZbCmd(c) {
+  if (!c || !c.a) return;
   function active(cb) {
     chrome.tabs.query({ active: true, lastFocusedWindow: true }, function (tabs) {
       if (tabs && tabs[0]) { cb(tabs[0]); return; }
@@ -520,6 +522,18 @@ chrome.storage.onChanged.addListener(function (changes, area) {
       });
     } else if (c.a === 'tmux') { tmuxCmd(c.sub, c); }
   } catch (e) {}
+}
+
+// zb_cmd storage bus — content scripts (and the palette navigation path) still write here.
+chrome.storage.onChanged.addListener(function (changes, area) {
+  if (area !== 'local') return;
+  if (!changes.zb_cmd || !changes.zb_cmd.newValue) return;
+  execZbCmd(changes.zb_cmd.newValue);
+});
+
+// Direct browser-action delivery from a HUD-page drain (bypasses storage.onChanged dedup).
+chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+  if (msg && msg.type === 'zbExec' && msg.action) { execZbCmd(msg.action); try { sendResponse({ ok: true }); } catch (e) {} }
 });
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
