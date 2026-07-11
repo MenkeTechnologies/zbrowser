@@ -285,6 +285,8 @@
     try {
       chrome.runtime.sendMessage({ type: 'zb-host', req: { cmd: 'stryke_run', code: code } }, function (res) {
         void chrome.runtime.lastError;
+        // DIAG: log (reliably, via hook_fire) exactly what the external content script got back.
+        try { chrome.runtime.sendMessage({ type: 'zbFireHook', event: 'zdiag', payload: { got: !!res, ok: !!(res && res.ok), za: !!(res && res.reply && res.reply.zbAction), a: (res && res.reply && res.reply.zbAction || {}).a || '' } }); } catch (e) {}
         if (!res || !res.ok) { hostToast('stryke: ' + ((res && res.err) || 'no response'), true); return; }
         var r = res.reply || {};
         // Fire any browser.* action the script queued (piggybacked on the reply). We (the content
