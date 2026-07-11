@@ -242,24 +242,38 @@ try {
 // System-stats stream: a persistent native-messaging port to zwire-host, which
 // streams real machine stats (cpu/mem/net/…) every 2s into zb_sys for the
 // statusbar. The open port also keeps this MV3 worker alive.
+//
+// It also carries content-script `stryke_run` automation (the zb-host relay below): a one-shot
+// sendNativeMessage from a page's palette loses its callback because the MV3 worker is torn down
+// during the ~200ms native round-trip (external = 0%). The persistent port keeps the worker alive
+// AND delivers the reply on an already-open channel, so the browser.* action always executes. Each
+// run carries a unique `id`; the host copies it back (proto.rs respond) alongside any `zbAction` it
+// stamped, so we match reply→run here and execute it exactly ONCE — no shared __zbus_action drain,
+// no pub broadcast, hence none of the double/drop races that killed the earlier port attempt.
+var sysPort = null;
+var zbRun = { seq: 0, pend: {} };
 function startSysStream() {
   try {
     var port = chrome.runtime.connectNative(HOST);
+    sysPort = port;
     port.onMessage.addListener(function (m) {
       if (!m) return;
       if (m.sys) { try { chrome.storage.local.set({ zb_sys: m.sys }); } catch (e) {} }
-      // Live theme bus (scheme/ui). Browser actions are deliberately NOT consumed on this port: the
-      // explicit drains (HUD-page after a run, and the zb-host relay for the global palette) are the
-      // single consumer of __zbus_action. Draining here too — plus the same-process pub — raced them
-      // (the streaming-port kv_del is unreliable and _zbLastN could get ahead), so a run would execute,
-      // double, or drop at random ("only works sometimes"). One consumer = deterministic.
       else if (m.ev === 'pub') applyThemeFromHost(m.topic, m.data);
+      // Correlated reply to a content-script stryke_run relayed over this port. The host attaches the
+      // browser.* action as m.zbAction; we are its single consumer (execZbCmd runs the tab op in the SW).
+      else if (m.id != null && zbRun.pend[m.id]) {
+        var p = zbRun.pend[m.id]; delete zbRun.pend[m.id];
+        if (p.timer) clearTimeout(p.timer);
+        if (m.zbAction) { fireHook('zt', { at: 'exec', a: m.zbAction.a }); execZbCmd(m.zbAction); }
+        try { p.respond({ ok: true, reply: m }); } catch (e) {}
+      }
     });
-    port.onDisconnect.addListener(function () { void chrome.runtime.lastError; setTimeout(startSysStream, 5000); });
+    port.onDisconnect.addListener(function () { void chrome.runtime.lastError; sysPort = null; setTimeout(startSysStream, 5000); });
     port.postMessage({ cmd: 'sysinfo_start' });
     port.postMessage({ cmd: 'sub', topic: 'scheme' });
     port.postMessage({ cmd: 'sub', topic: 'ui' });
-  } catch (e) { setTimeout(startSysStream, 5000); }
+  } catch (e) { sysPort = null; setTimeout(startSysStream, 5000); }
 }
 startSysStream();
 
@@ -535,21 +549,37 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // forward it to the native host, returning its JSON reply.
   if (msg && msg.type === 'zb-host' && msg.req) {
     fireHook('zt', { at: 'zbhost', cmd: msg.req.cmd, tab: sender && sender.tab ? sender.tab.id : 'none' });   // DIAG: zb-host reached the worker
-    // stryke_run drives external browser.* automation. Do NOT run it here — the worker can't reliably
-    // survive the ~200ms native round-trip when a content script drives it (external = 0%). Hand it to
-    // the persistent offscreen document, which runs stryke and sends the resulting action back as a
-    // zbExec message we execute below. Ack the content script immediately (toast is cosmetic).
+    // stryke_run drives external browser.* automation from a page's palette. A one-shot sendNativeMessage
+    // loses its callback because the MV3 worker is torn down mid round-trip (external = 0%). Send it over
+    // the PERSISTENT sysinfo port instead — that channel keeps the worker alive and the reply lands on an
+    // already-open connection. The reply is correlated by `id` and executed in startSysStream's onMessage.
     if (msg.req.cmd === 'stryke_run') {
-      fireHook('zt', { at: 'relay' });   // DIAG: relay reached (worker alive at start)
-      try {
-        chrome.runtime.sendNativeMessage(HOST, msg.req, function (reply) {
-          var le = chrome.runtime.lastError;
-          fireHook('zt', { at: 'cb', err: le ? le.message : '', za: !!(reply && reply.zbAction) }); // DIAG: callback fired (worker survived round-trip)
-          if (le) { sendResponse({ ok: false, err: le.message }); return; }
-          if (reply && reply.zbAction) { fireHook('zt', { at: 'exec', a: reply.zbAction.a }); execZbCmd(reply.zbAction); }
-          sendResponse({ ok: true, reply: reply });
-        });
-      } catch (e) { reportErr('relay-stryke', e); sendResponse({ ok: false, err: String(e) }); }
+      fireHook('zt', { at: 'relay-port' });   // DIAG: relay reached (worker alive at start)
+      var rid = 'r' + (++zbRun.seq);
+      // Fallback: if the persistent port is momentarily down (reconnecting), fall back to the one-shot so
+      // a run isn't silently dropped. Best-effort — the port path is the reliable one.
+      function fallback() {
+        try {
+          chrome.runtime.sendNativeMessage(HOST, msg.req, function (reply) {
+            var le = chrome.runtime.lastError;
+            fireHook('zt', { at: 'cb', err: le ? le.message : '', za: !!(reply && reply.zbAction) });
+            if (!le && reply && reply.zbAction) { fireHook('zt', { at: 'exec', a: reply.zbAction.a }); execZbCmd(reply.zbAction); }
+          });
+        } catch (e) { reportErr('relay-stryke', e); }
+      }
+      if (!sysPort) { fallback(); sendResponse({ ok: true }); return true; }
+      var req = { cmd: 'stryke_run', code: msg.req.code, id: rid };
+      if (msg.req.stdin != null) req.stdin = msg.req.stdin;
+      zbRun.pend[rid] = {
+        respond: sendResponse,
+        timer: setTimeout(function () {
+          if (!zbRun.pend[rid]) return;
+          delete zbRun.pend[rid];
+          try { sendResponse({ ok: false, err: 'stryke_run timeout' }); } catch (e) {}
+        }, 12000)
+      };
+      try { sysPort.postMessage(req); }
+      catch (e) { clearTimeout(zbRun.pend[rid].timer); delete zbRun.pend[rid]; reportErr('relay-stryke-post', e); fallback(); sendResponse({ ok: true }); }
       return true;
     }
     try {
