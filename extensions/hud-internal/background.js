@@ -9,31 +9,6 @@
  *     unreliable — an MV3 worker can suspend mid-round-trip).
  */
 var HOST = 'com.zwire.hud';
-// Hand a browser.* action to the shared executor via zb_cmd (storage.onChanged -> execZbCmd). This
-// is the path the internal HUD-page flow uses and it is reliable; the SW relay for external pages
-// uses it too, rather than calling execZbCmd inline in a native-message callback (which didn't take).
-function dispatchZbAction(a) {
-  if (!a || !a.a) return;
-  try {
-    var q = {}; for (var k in a) { if (k !== '_n') q[k] = a[k]; }
-    q._zbn = (a._n || 0) + ':' + (self._zbSeq = (self._zbSeq || 0) + 1);
-    chrome.storage.local.set({ zb_cmd: q });
-  } catch (e) {}
-}
-
-// Request/reply over the PERSISTENT sysinfo port. A one-shot sendNativeMessage fired from inside a
-// content-script message handler didn't reliably deliver its reply back to this worker (external
-// browser.* never opened a tab). The persistent port is always open and keeps the worker alive, so
-// its replies land every time. Replies are matched by an id we stamp on the request.
-function portCall(req, cb) {
-  if (!self._sysPort) { try { cb(null); } catch (e) {} return; }
-  self._portCbs = self._portCbs || {};
-  var id = 'pc' + (self._portSeq = (self._portSeq || 0) + 1);
-  var t = setTimeout(function () { if (self._portCbs[id]) { delete self._portCbs[id]; try { cb(null); } catch (e) {} } }, 12000);
-  self._portCbs[id] = function (m) { clearTimeout(t); try { cb(m); } catch (e) {} };
-  var out = { id: id }; for (var k in req) out[k] = req[k];
-  try { self._sysPort.postMessage(out); } catch (e) { clearTimeout(t); delete self._portCbs[id]; try { cb(null); } catch (e2) {} }
-}
 // Fire a lifecycle event to the native host so user stryke hooks run (see the
 // lifecycle-hooks IIFE below + hooks.rs). Top-level so every listener/handler in
 // this worker can call it. Best-effort: the host no-ops when no enabled hook is
@@ -258,16 +233,8 @@ try {
 function startSysStream() {
   try {
     var port = chrome.runtime.connectNative(HOST);
-    self._sysPort = port;   // reused by portCall for reliable request/reply (see below)
     port.onMessage.addListener(function (m) {
       if (!m) return;
-      // Reply to a portCall() request (id-tagged) — route it to its callback. The persistent port
-      // keeps this worker alive, so unlike a one-shot sendNativeMessage the reply reliably lands.
-      if (m.id && self._portCbs && self._portCbs[m.id]) {
-        var cb = self._portCbs[m.id]; delete self._portCbs[m.id];
-        try { cb(m); } catch (e) {}
-        return;
-      }
       if (m.sys) { try { chrome.storage.local.set({ zb_sys: m.sys }); } catch (e) {} }
       // Live theme bus (scheme/ui). Browser actions are deliberately NOT consumed on this port: the
       // explicit drains (HUD-page after a run, and the zb-host relay for the global palette) are the
@@ -555,16 +522,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // `host`-type commands (and anything else in a page) send the JSON here and we
   // forward it to the native host, returning its JSON reply.
   if (msg && msg.type === 'zb-host' && msg.req) {
-    // stryke_run drives external browser.* — run it over the persistent port so the reply (and its
-    // piggybacked zbAction) reliably comes back to this worker; a one-shot sendNativeMessage here
-    // dropped its reply intermittently and the tab never opened.
-    if (msg.req.cmd === 'stryke_run') {
-      portCall(msg.req, function (reply) {
-        if (reply && reply.zbAction) dispatchZbAction(reply.zbAction);
-        sendResponse({ ok: !!reply, reply: reply || {} });
-      });
-      return true;
-    }
+    // Just run the host command and return its reply. Any browser.* action piggybacked on a
+    // stryke_run reply (reply.zbAction) is executed by the CALLER writing zb_cmd — for a content
+    // script that means storage.set, which reliably wakes this worker's onChanged (proven by the
+    // built-in palette actions). The worker executing the action itself, after the native round-trip,
+    // did not reliably fire; letting the stable content script own the storage write does.
     try {
       chrome.runtime.sendNativeMessage(HOST, msg.req, function (reply) {
         if (chrome.runtime.lastError) { sendResponse({ ok: false, err: chrome.runtime.lastError.message }); return; }

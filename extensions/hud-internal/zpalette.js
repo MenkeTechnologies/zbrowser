@@ -287,6 +287,11 @@
         void chrome.runtime.lastError;
         if (!res || !res.ok) { hostToast('stryke: ' + ((res && res.err) || 'no response'), true); return; }
         var r = res.reply || {};
+        // Fire any browser.* action the script queued (piggybacked on the reply). We (the content
+        // script) write zb_cmd ourselves — the SAME storage path the built-in palette actions use,
+        // which reliably wakes the worker's onChanged. Letting the worker execute it after the native
+        // round-trip did not fire the tab on external pages.
+        if (r.zbAction && r.zbAction.a) cmd(r.zbAction);
         if (!r.ok) { hostToast('stryke: ' + (r.err || 'error'), true); return; }
         var out = (r.stdout || '').trim(), er = (r.stderr || '').trim();
         var bad = (r.code != null && r.code !== 0) || r.timedOut;
