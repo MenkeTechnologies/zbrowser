@@ -328,8 +328,16 @@
     root.appendChild(app);
     // ZGui.searchBox filter (real zgui widget)
     if (opts.onFilter && ZGui.searchBox) {
-      ZGui.searchBox(filterHost, { placeholder: opts.filterPlaceholder || '>_ filter…',
+      var sb = ZGui.searchBox(filterHost, { placeholder: opts.filterPlaceholder || '>_ filter…',
         onInput: function (v, meta) { opts.onFilter(v, meta ? !!meta.regex : false); } });
+      // Focus the filter on load so you can type immediately, like the native chrome:// pages. rAF so
+      // it runs after layout + the rest of mount; fall back to the raw input if searchBox returns no API.
+      requestAnimationFrame(function () {
+        try {
+          if (sb && typeof sb.focus === 'function') { sb.focus(); return; }
+          var inp = filterHost.querySelector('input'); if (inp) inp.focus();
+        } catch (e) {}
+      });
     }
     // CRT scanlines via ZGui.crt — call with NO {on} so it RESPECTS the saved
     // pref (localStorage zguiCrt). Forcing {on:true} here re-enabled it on every
