@@ -282,9 +282,12 @@ rsync -a --delete --exclude '_metadata' "$RES/ext/" "$USEREXT/"
 # silently never take effect across a redeploy. Deleting the profile's Service Worker script cache
 # (safe here — the launcher runs before Chrome starts; workers re-register from source) forces a
 # fresh background.js eval. Gated on a version marker so it only happens on an actual version bump.
+# NOTE: Chrome keeps the SW cache under the PROFILE subdir ($PROFILE/Default/Service Worker), NOT
+# $PROFILE/Service Worker — deleting the latter (which never exists) is why SW fixes silently never
+# took effect. Delete both to cover any profile layout.
 SWVER="$(grep -m1 '"version"' "$USEREXT/hud-internal/manifest.json" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 if [ -n "$SWVER" ] && [ "$(cat "$STATE/.sw_version" 2>/dev/null)" != "$SWVER" ]; then
-  rm -rf "$PROFILE/Service Worker" 2>/dev/null || true
+  rm -rf "$PROFILE/Default/Service Worker" "$PROFILE/Service Worker" 2>/dev/null || true
   printf '%s' "$SWVER" > "$STATE/.sw_version" 2>/dev/null || true
 fi
 LOAD="$USEREXT/newtab,$USEREXT/zpwrchrome,$USEREXT/hud-internal"
