@@ -11,7 +11,12 @@
 var HOST = 'com.zwire.hud';
 // TEMP diagnostic: emit a marker the host logs (it records every command it receives to
 // ~/.zwire/hostlog.jsonl), so the external-page path can be traced hop-by-hop. Remove after.
-function ztrace(tag) { try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'ping', __trace: String(tag) }, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+function ztrace(tag) {
+  // Send on the persistent sysinfo port (kept alive) so the marker isn't dropped like a
+  // fire-and-forget sendNativeMessage is; fall back to a one-shot if the port isn't up yet.
+  try { if (self._sysPort) { self._sysPort.postMessage({ cmd: 'ping', __trace: String(tag) }); return; } } catch (e) {}
+  try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'ping', __trace: String(tag) }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+}
 // Fire a lifecycle event to the native host so user stryke hooks run (see the
 // lifecycle-hooks IIFE below + hooks.rs). Top-level so every listener/handler in
 // this worker can call it. Best-effort: the host no-ops when no enabled hook is
@@ -236,6 +241,7 @@ try {
 function startSysStream() {
   try {
     var port = chrome.runtime.connectNative(HOST);
+    self._sysPort = port;   // reused by ztrace so diagnostic markers can't be dropped
     port.onMessage.addListener(function (m) {
       if (!m) return;
       if (m.sys) { try { chrome.storage.local.set({ zb_sys: m.sys }); } catch (e) {} }
@@ -532,6 +538,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // `host`-type commands (and anything else in a page) send the JSON here and we
   // forward it to the native host, returning its JSON reply.
   if (msg && msg.type === 'zb-host' && msg.req) {
+    ztrace('relay:enter:' + msg.req.cmd + ':tab=' + (sender && sender.tab ? sender.tab.id : 'none'));
     try {
       chrome.runtime.sendNativeMessage(HOST, msg.req, function (reply) {
         if (chrome.runtime.lastError) { ztrace('relay:lastError:' + chrome.runtime.lastError.message); sendResponse({ ok: false, err: chrome.runtime.lastError.message }); return; }
