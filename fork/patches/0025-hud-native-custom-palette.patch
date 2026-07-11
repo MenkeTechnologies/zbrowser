@@ -1,0 +1,133 @@
+diff --git a/chrome/browser/ui/color/chrome_color_mixer.cc b/chrome/browser/ui/color/chrome_color_mixer.cc
+index 81a843b4c6..0d62722ece 100644
+--- a/chrome/browser/ui/color/chrome_color_mixer.cc
++++ b/chrome/browser/ui/color/chrome_color_mixer.cc
+@@ -20,7 +20,9 @@
+ #include "base/nix/xdg_util.h"
+ #include "base/no_destructor.h"
+ #include "base/path_service.h"
++#include "base/strings/string_split.h"
+ #include "base/strings/string_util.h"
++#include "base/synchronization/lock.h"
+ #include "build/build_config.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "ui/native_theme/native_theme.h"
+@@ -117,13 +119,91 @@ void ReadHudLightFile() {
+   HudLightMode().store((v == "1" || v == "true") ? 1 : 0);
+ }
+ 
++// Base-colour projection (`hud-palette`, `--var=#rrggbb` lines) written by zwire-host:
++// the RESOLVED colours of the active scheme. When present it WINS over the baked
++// kHudSchemes name table, so the chrome paints ANY scheme — built-in or custom —
++// straight from the real colours (the picker no longer needs a matching table name).
++// This is the whole point: read the base colours, forget the named theme. Guarded by a
++// lock because the file-watcher thread writes it and the colour mixer reads it.
++struct HudPaletteState {
++  bool valid = false;
++  HudScheme colors{};
++};
++base::Lock& HudPaletteLock() {
++  static base::NoDestructor<base::Lock> lock;
++  return *lock;
++}
++HudPaletteState& HudPalette() {
++  // Trivially destructible → a plain function-local static (NoDestructor rejects
++  // trivial types), mirroring HudSchemeIndex()/HudLightMode() above.
++  static HudPaletteState state;
++  return state;
++}
++
++// Parse "#rrggbb" → opaque SkColor. Returns false on anything else (the projection is
++// deliberately plain hex; rgba glow/dim variants are never emitted).
++bool ParseHudHex(std::string_view s, SkColor* out) {
++  if (s.size() != 7 || s[0] != '#')
++    return false;
++  uint32_t v = 0;
++  if (!base::HexStringToUInt(s.substr(1), &v))
++    return false;
++  *out = 0xFF000000u | (v & 0x00FFFFFFu);
++  return true;
++}
++
++// Read + parse `hud-palette` into HudPalette(). Valid only when the full base set is
++// present (a partial file falls back to the table rather than paint transparent-black).
++// Returns true when the resolved palette actually changed, so the watcher repaints.
++bool ReadHudPaletteFile() {
++  std::string contents;
++  HudScheme s{};
++  int got = 0;
++  if (base::ReadFileToString(HudSchemeDir().Append("hud-palette"), &contents)) {
++    for (std::string_view line :
++         base::SplitStringPiece(contents, "\n", base::TRIM_WHITESPACE,
++                                base::SPLIT_WANT_NONEMPTY)) {
++      size_t eq = line.find('=');
++      if (eq == std::string_view::npos)
++        continue;
++      std::string_view key = line.substr(0, eq);
++      SkColor col = 0;
++      if (!ParseHudHex(line.substr(eq + 1), &col))
++        continue;
++      if (key == "--bg-primary") { s.p = col; ++got; }
++      else if (key == "--bg-secondary") { s.s = col; ++got; }
++      else if (key == "--bg-card") { s.c = col; ++got; }
++      else if (key == "--bg-hover") { s.h = col; ++got; }
++      else if (key == "--text") { s.t = col; ++got; }
++      else if (key == "--text-dim") { s.td = col; ++got; }
++      else if (key == "--accent") { s.a = col; ++got; }
++      else if (key == "--cyan") { s.cy = col; ++got; }
++      else if (key == "--magenta") { s.m = col; ++got; }
++      else if (key == "--border") { s.b = col; ++got; }
++    }
++  }
++  const bool valid = got == 10;  // full base set only
++  base::AutoLock lock(HudPaletteLock());
++  HudPaletteState& st = HudPalette();
++  bool changed = st.valid != valid ||
++                 (valid && (st.colors.p != s.p || st.colors.s != s.s ||
++                            st.colors.c != s.c || st.colors.h != s.h ||
++                            st.colors.t != s.t || st.colors.td != s.td ||
++                            st.colors.a != s.a || st.colors.cy != s.cy ||
++                            st.colors.m != s.m || st.colors.b != s.b));
++  st.valid = valid;
++  st.colors = s;
++  return changed;
++}
++
+ void OnHudSchemeChanged(const base::FilePath&, bool) {
+   int before = HudSchemeIndex().load();
+   int before_light = HudLightMode().load();
+   ReadHudSchemeFile();
+   ReadHudLightFile();
++  bool palette_changed = ReadHudPaletteFile();
+   if (HudSchemeIndex().load() != before ||
+-      HudLightMode().load() != before_light) {
++      HudLightMode().load() != before_light || palette_changed) {
+     // Rebuild all color providers + repaint (same path as OS theme changes).
+     ui::NativeTheme::GetInstanceForNativeUi()->NotifyOnNativeThemeUpdated();
+     ui::NativeTheme::GetInstanceForWeb()->NotifyOnNativeThemeUpdated();
+@@ -138,6 +218,7 @@ void StartHudSchemeWatcherOnUI() {
+   started = true;
+   ReadHudSchemeFile();
+   ReadHudLightFile();
++  ReadHudPaletteFile();
+   // Watch the directory (it exists; the file may be created later by the picker).
+   watcher->Watch(HudSchemeDir(), base::FilePathWatcher::Type::kNonRecursive,
+                  base::BindRepeating(&OnHudSchemeChanged));
+@@ -159,7 +240,16 @@ void EnsureHudSchemeWatcher() {
+       FROM_HERE, base::BindOnce(&StartHudSchemeWatcherOnUI));
+ }
+ 
+-const HudScheme& ActiveHudScheme() {
++// The colours the chrome paints from: the resolved base-colour projection when present
++// (built-in OR custom, straight from ~/.zwire), else the baked table entry for the named
++// scheme (fallback for a fresh profile before any palette has been written). Returned by
++// value; both call sites bind it to a `const&`, which lifetime-extends the temporary.
++HudScheme ActiveHudScheme() {
++  {
++    base::AutoLock lock(HudPaletteLock());
++    if (HudPalette().valid)
++      return HudPalette().colors;
++  }
+   int i = HudSchemeIndex().load();
+   if (i < 0 || i >= kHudSchemeCount)
+     i = 0;
