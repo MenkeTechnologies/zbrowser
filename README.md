@@ -41,6 +41,11 @@ workspace layered on top:
   browser events (tab / window / navigation / download / bookmark / terminal /
   scheme / audio / ⌘K-command lifecycle, plus an `action` catch-all), with a
   searchable event picker;
+- an **automation verb bus** — one namespaced `browser.*` surface (tab / group /
+  window ops, edge-snapping, downloads, browsing-data clearing, bookmarks,
+  reading list, extensions, power, screenshot, notify, tmux toggle) that the ⌘K
+  palette, keyboard shortcuts, and stryke hooks all drive through a single
+  service-worker executor, published as a typed, introspectable manifest;
 - the **`zpwrchrome`** power-tool preloaded against a dedicated profile, so it
   never touches your system Chrome.
 
@@ -116,6 +121,24 @@ runs each **enabled** hook whose event matches, feeding it the event JSON on
 stdin. The script prints an `{actions:[…]}` object the host dispatches (`notify` /
 `open` / `exec` / `pub`). The page has a searchable event picker, a Monaco editor
 with the stryke LSP (vim/emacs modes), and a Test-run button.
+
+**Automation verb bus (`background.js` → `execZbCmd`).** Every HUD surface —
+the ⌘K palette, content-script shortcuts, and stryke hooks — drives the browser
+through one namespaced verb bus. A custom-command store seeds the defaults on
+first run; each invocation routes through the `zb_cmd` storage bus to a single
+executor in the service worker. The surface spans **tab ops** (open / close
+left/right/others/duplicates / reopen / duplicate / pin / mute / discard / move /
+sort / group), **tab-group** collapse/expand, **window ops** (new / close /
+merge / min-max-restore / fullscreen / center / next-display), **edge snapping**
+(left / right / top / bottom + four corners), **navigation** (back / forward /
+home / zoom), **downloads** (pause / resume / cancel / retry / clear / reveal),
+**browsing-data** clearing (cache / cookies / history / passwords / all),
+**history + bookmark + reading-list** edits, **extension** enable/disable/
+uninstall + **app launch**, **keep-awake** power control, **screenshot**,
+**notify**, and the **`tmux`** overlay toggle. The typed manifest is published
+through `ZGui.automation` — the shared registry every embedded core contributes
+verbs to — so a stryke script sees one combined, introspectable `browser.*`
+surface via `App::here()->verbs()`.
 
 **Around it:** a **⌘K command palette** (`zpalette`) — which also carries the
 scheme picker, the light/dark toggle, and the settings controls — **vim-style
