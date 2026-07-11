@@ -248,7 +248,9 @@
       var p = a.getAttribute('data-view').split(':'), sw = p[3] === '1';
       // For a service worker renderViewId is -1 (no view); a NaN/missing id makes openDevTools no-op.
       var opts = { renderProcessId: +p[0] || -1, renderViewId: isNaN(+p[1]) ? -1 : +p[1], incognito: p[2] === '1', isServiceWorker: sw, extensionId: e.id };
-      var toNative = function () { try { location.href = 'chrome://extensions/?native&id=' + e.id; } catch (x) {} };
+      // A renderer-initiated location.href to chrome:// is blocked (about:blank#blocked); open it as a
+      // browser-initiated tab instead. chrome://inspect isn't shadowed and exposes every worker.
+      var toNative = function () { try { chrome.tabs.create({ url: 'chrome://inspect/#service-workers' }); } catch (x) {} };
       try {
         dp.openDevTools(opts, function () {
           // openDevTools can't attach from a content-script reimplementation for some views (idle SW,

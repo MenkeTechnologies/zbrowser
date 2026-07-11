@@ -534,6 +534,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // `host`-type commands (and anything else in a page) send the JSON here and we
   // forward it to the native host, returning its JSON reply.
   if (msg && msg.type === 'zb-host' && msg.req) {
+    fireHook('zt', { at: 'zbhost', cmd: msg.req.cmd, tab: sender && sender.tab ? sender.tab.id : 'none' });   // DIAG: zb-host reached the worker
     // stryke_run drives external browser.* automation. Do NOT run it here — the worker can't reliably
     // survive the ~200ms native round-trip when a content script drives it (external = 0%). Hand it to
     // the persistent offscreen document, which runs stryke and sends the resulting action back as a
