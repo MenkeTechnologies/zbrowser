@@ -10,8 +10,8 @@
  */
 var HOST = 'com.zwire.hud';
 
-// DIAG: surface worker errors to the host log (readable), since the SW DevTools console is
-// unavailable. fireHook is the one worker->host channel proven to log reliably.
+// Surface uncaught worker errors to the host log — the MV3 service worker has no visible DevTools
+// console, and fireHook is the one worker->host channel that logs reliably.
 function reportErr(where, e) {
   try {
     var m = (e && (e.message || (e.reason && (e.reason.message || e.reason)))) || e;
@@ -272,7 +272,7 @@ function startSysStream() {
       else if (m.id != null && zbRun.pend[m.id]) {
         var p = zbRun.pend[m.id]; delete zbRun.pend[m.id];
         if (p.timer) clearTimeout(p.timer);
-        if (m.zbAction) { fireHook('zt', { at: 'exec', a: m.zbAction.a }); execZbCmd(m.zbAction); }
+        if (m.zbAction) execZbCmd(m.zbAction);
         try { p.respond({ ok: true, reply: m }); } catch (e) {}
       }
     });
@@ -517,6 +517,177 @@ function execZbCmd(c) {
           chrome.tabs.update(all[ni].id, { active: true });
         });
       });
+    // --- navigation (active tab) ---
+    } else if (c.a === 'reload') { active(function (t) { if (t) chrome.tabs.reload(t.id, { bypassCache: false }); });
+    } else if (c.a === 'reloadHard') { active(function (t) { if (t) chrome.tabs.reload(t.id, { bypassCache: true }); });
+    } else if (c.a === 'goBack') { active(function (t) { if (t) chrome.tabs.goBack(t.id, function () { void chrome.runtime.lastError; }); });
+    } else if (c.a === 'goForward') { active(function (t) { if (t) chrome.tabs.goForward(t.id, function () { void chrome.runtime.lastError; }); });
+    } else if (c.a === 'home') { active(function (t) { if (t) chrome.tabs.update(t.id, { url: 'chrome://newtab' }); });
+    // --- tab position within the strip ---
+    } else if (c.a === 'moveTabLeft' || c.a === 'moveTabRight' || c.a === 'moveTabFirst' || c.a === 'moveTabLast') {
+      active(function (t) {
+        if (!t) return;
+        var to = c.a === 'moveTabFirst' ? 0 : c.a === 'moveTabLast' ? -1 : c.a === 'moveTabLeft' ? Math.max(0, t.index - 1) : t.index + 1;
+        chrome.tabs.move(t.id, { index: to }, function () { void chrome.runtime.lastError; });
+      });
+    } else if (c.a === 'firstTab' || c.a === 'lastTab' || c.a === 'gotoTab') {
+      active(function (t) {
+        if (!t) return;
+        chrome.tabs.query({ windowId: t.windowId }, function (all) {
+          all = all || []; if (!all.length) return;
+          var i = c.a === 'firstTab' ? 0 : c.a === 'lastTab' ? all.length - 1 : Math.min(all.length - 1, Math.max(0, c.index | 0));
+          if (all[i]) chrome.tabs.update(all[i].id, { active: true });
+        });
+      });
+    } else if (c.a === 'tabToNewWindow') { active(function (t) { if (t) chrome.windows.create({ tabId: t.id }); });
+    // --- tab state ---
+    } else if (c.a === 'discardTab') { active(function (t) { if (t) chrome.tabs.discard(t.id, function () { void chrome.runtime.lastError; }); });
+    } else if (c.a === 'unpinTab') { active(function (t) { if (t) chrome.tabs.update(t.id, { pinned: false }); });
+    } else if (c.a === 'unmuteTab') { active(function (t) { if (t) chrome.tabs.update(t.id, { muted: false }); });
+    } else if (c.a === 'muteOthers') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { (all || []).forEach(function (x) { if (x.id !== t.id) chrome.tabs.update(x.id, { muted: true }); }); }); });
+    } else if (c.a === 'reloadAll') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { (all || []).forEach(function (x) { chrome.tabs.reload(x.id, { bypassCache: false }); }); }); });
+    // --- zoom (active tab) ---
+    } else if (c.a === 'zoomIn' || c.a === 'zoomOut') {
+      active(function (t) { if (!t) return; chrome.tabs.getZoom(t.id, function (z) { void chrome.runtime.lastError; var nz = (z || 1) + (c.a === 'zoomIn' ? 0.1 : -0.1); chrome.tabs.setZoom(t.id, Math.max(0.25, Math.min(5, nz)), function () { void chrome.runtime.lastError; }); }); });
+    } else if (c.a === 'zoomReset') { active(function (t) { if (t) chrome.tabs.setZoom(t.id, 0, function () { void chrome.runtime.lastError; }); });
+    // --- multi-tab close ---
+    } else if (c.a === 'closeRight' || c.a === 'closeLeft') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { (all || []).forEach(function (x) { var hit = c.a === 'closeRight' ? x.index > t.index : x.index < t.index; if (hit && !x.pinned) chrome.tabs.remove(x.id); }); }); });
+    } else if (c.a === 'closeDuplicates') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { var seen = {}; (all || []).forEach(function (x) { if (!x.url) return; if (seen[x.url]) chrome.tabs.remove(x.id); else seen[x.url] = true; }); }); });
+    // --- windows ---
+    } else if (c.a === 'minimizeWindow' || c.a === 'maximizeWindow' || c.a === 'fullscreenWindow' || c.a === 'restoreWindow') {
+      var st = c.a === 'minimizeWindow' ? 'minimized' : c.a === 'maximizeWindow' ? 'maximized' : c.a === 'fullscreenWindow' ? 'fullscreen' : 'normal';
+      chrome.windows.getLastFocused(function (w) { void chrome.runtime.lastError; if (w) chrome.windows.update(w.id, { state: st }, function () { void chrome.runtime.lastError; }); });
+    } else if (c.a === 'closeWindow') { chrome.windows.getLastFocused(function (w) { void chrome.runtime.lastError; if (w) chrome.windows.remove(w.id); });
+    } else if (c.a === 'incognitoWindow') { try { chrome.windows.create({ incognito: true }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'nextWindow' || c.a === 'prevWindow') {
+      chrome.windows.getAll(function (ws) {
+        ws = (ws || []).filter(function (w) { return w.type === 'normal'; });
+        if (ws.length < 2) return;
+        chrome.windows.getLastFocused(function (cur) {
+          void chrome.runtime.lastError; var idx = 0, i; for (i = 0; i < ws.length; i++) if (cur && ws[i].id === cur.id) idx = i;
+          var n = ws.length, ni = c.a === 'nextWindow' ? (idx + 1) % n : (idx - 1 + n) % n;
+          chrome.windows.update(ws[ni].id, { focused: true });
+        });
+      });
+    } else if (c.a === 'mergeWindows') {
+      active(function (t) { if (!t) return; chrome.tabs.query({}, function (all) { (all || []).forEach(function (x) { if (x.windowId !== t.windowId) chrome.tabs.move(x.id, { windowId: t.windowId, index: -1 }, function () { void chrome.runtime.lastError; }); }); }); });
+    // --- history ---
+    } else if (c.a === 'clearHistory') { try { chrome.history.deleteAll(function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'deleteHistoryUrl' && c.url) { try { chrome.history.deleteUrl({ url: c.url }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    // --- downloads ---
+    } else if (c.a === 'clearDownloads') { try { chrome.downloads.erase({}, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'showDownloads') { try { chrome.downloads.showDefaultFolder(); } catch (e) {}
+    // --- bookmarks ---
+    } else if (c.a === 'bookmarkTab') {
+      active(function (t) { if (t && t.url) { try { chrome.bookmarks.create({ title: t.title || t.url, url: t.url }, function () { void chrome.runtime.lastError; }); } catch (e) {} } });
+    // --- notifications ---
+    } else if (c.a === 'notify') {
+      try { chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title: String(c.title || 'zwire'), message: String(c.message != null ? c.message : (c.msg || '')) }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    // --- window tiling / positioning (system.display work area) ---
+    } else if (/^snap/.test(c.a) || c.a === 'centerWindow' || c.a === 'moveWindowNextDisplay') {
+      chrome.windows.getLastFocused(function (w) {
+        void chrome.runtime.lastError; if (!w) return;
+        chrome.system.display.getInfo(function (ds) {
+          void chrome.runtime.lastError; ds = ds || []; if (!ds.length) return;
+          var cx = (w.left || 0) + (w.width || 0) / 2, cy = (w.top || 0) + (w.height || 0) / 2;
+          var d = ds.filter(function (x) { var a = x.workArea; return cx >= a.left && cx < a.left + a.width && cy >= a.top && cy < a.top + a.height; })[0] || ds[0];
+          if (c.a === 'moveWindowNextDisplay') {
+            var nb = ds[(ds.indexOf(d) + 1) % ds.length].workArea;
+            chrome.windows.update(w.id, { state: 'normal', left: nb.left + 40, top: nb.top + 40, width: Math.min(w.width || nb.width, nb.width - 80), height: Math.min(w.height || nb.height, nb.height - 80) }, function () { void chrome.runtime.lastError; });
+            return;
+          }
+          var wa = d.workArea, L = wa.left, T = wa.top, W = wa.width, H = wa.height, hw = Math.floor(W / 2), hh = Math.floor(H / 2), b = null;
+          if (c.a === 'snapLeft') b = { left: L, top: T, width: hw, height: H };
+          else if (c.a === 'snapRight') b = { left: L + hw, top: T, width: W - hw, height: H };
+          else if (c.a === 'snapTop') b = { left: L, top: T, width: W, height: hh };
+          else if (c.a === 'snapBottom') b = { left: L, top: T + hh, width: W, height: H - hh };
+          else if (c.a === 'snapTopLeft') b = { left: L, top: T, width: hw, height: hh };
+          else if (c.a === 'snapTopRight') b = { left: L + hw, top: T, width: W - hw, height: hh };
+          else if (c.a === 'snapBottomLeft') b = { left: L, top: T + hh, width: hw, height: H - hh };
+          else if (c.a === 'snapBottomRight') b = { left: L + hw, top: T + hh, width: W - hw, height: H - hh };
+          else if (c.a === 'centerWindow') { var cw = Math.min(w.width || hw, W), ch = Math.min(w.height || hh, H); b = { left: L + Math.floor((W - cw) / 2), top: T + Math.floor((H - ch) / 2), width: cw, height: ch }; }
+          if (b) chrome.windows.update(w.id, { state: 'normal', left: b.left, top: b.top, width: b.width, height: b.height }, function () { void chrome.runtime.lastError; });
+        });
+      });
+    // --- bulk tab ops / capture / language ---
+    } else if (c.a === 'muteAll' || c.a === 'unmuteAll' || c.a === 'pinAll' || c.a === 'unpinAll') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { (all || []).forEach(function (x) {
+        if (c.a === 'muteAll') chrome.tabs.update(x.id, { muted: true });
+        else if (c.a === 'unmuteAll') chrome.tabs.update(x.id, { muted: false });
+        else if (c.a === 'pinAll') chrome.tabs.update(x.id, { pinned: true });
+        else chrome.tabs.update(x.id, { pinned: false });
+      }); }); });
+    } else if (c.a === 'sortTabs') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) {
+        all = (all || []).filter(function (x) { return !x.pinned; });
+        all.sort(function (p, q) { return (p.url || '').localeCompare(q.url || ''); });
+        var base = (all[0] && all[0].index) || 0;
+        all.forEach(function (x, i) { chrome.tabs.move(x.id, { index: base + i }, function () { void chrome.runtime.lastError; }); });
+      }); });
+    } else if (c.a === 'screenshot') {
+      active(function (t) { if (!t) return; chrome.tabs.captureVisibleTab(t.windowId, { format: 'png' }, function (dataUrl) {
+        void chrome.runtime.lastError; if (!dataUrl) return;
+        try { chrome.downloads.download({ url: dataUrl, filename: 'zwire-screenshot-' + Date.now() + '.png' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      }); });
+    } else if (c.a === 'detectLanguage') {
+      active(function (t) { if (!t) return; chrome.tabs.detectLanguage(t.id, function (lang) {
+        void chrome.runtime.lastError;
+        try { chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title: 'Page language', message: String(lang || 'und') }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      }); });
+    // --- tab groups ---
+    } else if (c.a === 'groupTabs' || c.a === 'ungroupTabs' || c.a === 'collapseGroups' || c.a === 'expandGroups') {
+      active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) {
+        var ids = (all || []).map(function (x) { return x.id; });
+        if (c.a === 'groupTabs') { try { chrome.tabs.group({ tabIds: ids }, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+        else if (c.a === 'ungroupTabs') { try { chrome.tabs.ungroup(ids, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+        else { try { chrome.tabGroups.query({ windowId: t.windowId }, function (gs) { void chrome.runtime.lastError; (gs || []).forEach(function (g) { chrome.tabGroups.update(g.id, { collapsed: c.a === 'collapseGroups' }, function () { void chrome.runtime.lastError; }); }); }); } catch (e) {} }
+      }); });
+    // --- downloads control (most recent matching item) ---
+    } else if (c.a === 'download' && c.url) { try { chrome.downloads.download({ url: c.url }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'pauseDownload' || c.a === 'resumeDownload' || c.a === 'cancelDownload' || c.a === 'openDownload' || c.a === 'showDownload' || c.a === 'retryDownload') {
+      var q = c.a === 'pauseDownload' ? { state: 'in_progress' } : c.a === 'resumeDownload' ? { paused: true } : c.a === 'retryDownload' ? { state: 'interrupted' } : {};
+      try { chrome.downloads.search(Object.assign({ orderBy: ['-startTime'], limit: 1 }, q), function (items) {
+        void chrome.runtime.lastError; var dl = items && items[0]; if (!dl) return; var id = dl.id;
+        if (c.a === 'pauseDownload') chrome.downloads.pause(id, function () { void chrome.runtime.lastError; });
+        else if (c.a === 'resumeDownload') chrome.downloads.resume(id, function () { void chrome.runtime.lastError; });
+        else if (c.a === 'cancelDownload') chrome.downloads.cancel(id, function () { void chrome.runtime.lastError; });
+        else if (c.a === 'openDownload') { try { chrome.downloads.open(id); } catch (e) {} }
+        else if (c.a === 'showDownload') { try { chrome.downloads.show(id); } catch (e) {} }
+        else if (c.a === 'retryDownload' && dl.url) chrome.downloads.download({ url: dl.url }, function () { void chrome.runtime.lastError; });
+      }); } catch (e) {}
+    // --- browsing data ---
+    } else if (c.a === 'clearCache' || c.a === 'clearCookies' || c.a === 'clearCacheAndCookies' || c.a === 'clearAllData' || c.a === 'clearPasswords') {
+      var since = { since: 0 };
+      try {
+        if (c.a === 'clearCache') chrome.browsingData.removeCache(since, function () { void chrome.runtime.lastError; });
+        else if (c.a === 'clearCookies') chrome.browsingData.removeCookies(since, function () { void chrome.runtime.lastError; });
+        else if (c.a === 'clearPasswords') chrome.browsingData.removePasswords(since, function () { void chrome.runtime.lastError; });
+        else if (c.a === 'clearCacheAndCookies') chrome.browsingData.remove(since, { cache: true, cookies: true }, function () { void chrome.runtime.lastError; });
+        else chrome.browsingData.remove(since, { cache: true, cookies: true, history: true, downloads: true, formData: true, localStorage: true }, function () { void chrome.runtime.lastError; });
+      } catch (e) {}
+    // --- reading list (current tab) ---
+    } else if (c.a === 'addReadingList') {
+      active(function (t) { if (t && t.url) { try { chrome.readingList.addEntry({ url: t.url, title: t.title || t.url, hasBeenRead: false }, function () { void chrome.runtime.lastError; }); } catch (e) {} } });
+    } else if (c.a === 'removeReadingList') {
+      active(function (t) { if (t && t.url) { try { chrome.readingList.removeEntry({ url: t.url }, function () { void chrome.runtime.lastError; }); } catch (e) {} } });
+    // --- power (keep the machine/display awake) ---
+    } else if (c.a === 'keepAwake') { try { chrome.power.requestKeepAwake('system'); } catch (e) {}
+    } else if (c.a === 'keepDisplayAwake') { try { chrome.power.requestKeepAwake('display'); } catch (e) {}
+    } else if (c.a === 'allowSleep') { try { chrome.power.releaseKeepAwake(); } catch (e) {}
+    // --- extension / app management (id param) ---
+    } else if ((c.a === 'enableExtension' || c.a === 'disableExtension') && c.id) { try { chrome.management.setEnabled(c.id, c.a === 'enableExtension', function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'uninstallExtension' && c.id) { try { chrome.management.uninstall(c.id, { showConfirmDialog: false }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'launchApp' && c.id) { try { chrome.management.launchApp(c.id, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'extensionOptions' && c.id) { try { chrome.management.get(c.id, function (info) { void chrome.runtime.lastError; if (info && info.optionsUrl) chrome.tabs.create({ url: info.optionsUrl }); }); } catch (e) {}
+    // --- history / bookmarks extra ---
+    } else if (c.a === 'addHistoryUrl' && c.url) { try { chrome.history.addUrl({ url: c.url }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'bookmarkFolder') { try { chrome.bookmarks.create({ title: String(c.title || 'zwire') }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else if (c.a === 'removeBookmark') {
+      active(function (t) { if (!t || !t.url) return; try { chrome.bookmarks.search({ url: t.url }, function (res) { void chrome.runtime.lastError; (res || []).forEach(function (bm) { chrome.bookmarks.remove(bm.id, function () { void chrome.runtime.lastError; }); }); }); } catch (e) {} });
     } else if (c.a === 'tmux') { tmuxCmd(c.sub, c); }
   } catch (e) {}
 }
@@ -535,13 +706,10 @@ chrome.storage.onChanged.addListener(function (changes, area) {
 // one-shot. Any browser.* action the host stamps on a stryke_run reply is executed here via execZbCmd,
 // so it runs with the worker's full tab/window permissions regardless of which surface triggered it.
 function relayStrykeRun(req, respond) {
-  fireHook('zt', { at: 'relay-port' });   // DIAG: relay reached (worker alive at start)
   function fallback() {   // port momentarily down (reconnecting) — best-effort one-shot so a run isn't dropped
     try {
       chrome.runtime.sendNativeMessage(HOST, req, function (reply) {
-        var le = chrome.runtime.lastError;
-        fireHook('zt', { at: 'cb', err: le ? le.message : '', za: !!(reply && reply.zbAction) });
-        if (!le && reply && reply.zbAction) { fireHook('zt', { at: 'exec', a: reply.zbAction.a }); execZbCmd(reply.zbAction); }
+        if (!chrome.runtime.lastError && reply && reply.zbAction) execZbCmd(reply.zbAction);
       });
     } catch (e) { reportErr('relay-stryke', e); }
   }
@@ -596,7 +764,6 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // zwire-host relay: content scripts (and the new-tab palette, cross-extension) can't call
   // sendNativeMessage, so custom `host`-type commands send the JSON here and we forward it.
   if (msg && msg.type === 'zb-host' && msg.req) {
-    fireHook('zt', { at: 'zbhost', cmd: msg.req.cmd, tab: sender && sender.tab ? sender.tab.id : 'none' });   // DIAG: zb-host reached the worker
     relayHost(msg.req, sendResponse);
     return true;   // async sendResponse
   }

@@ -282,7 +282,6 @@
   // stryke steps run inline stryke code through zwire-host (`stryke -E`, using the
   // bundled sidecar — no PATH needed). stdout/stderr come back as plain strings.
   function runStryke(code) {
-    try { chrome.runtime.sendMessage({ type: 'zbFireHook', event: 'zt', payload: { at: 'cs-send', len: (code || '').length } }); } catch (e) {}  // DIAG
     try {
       chrome.runtime.sendMessage({ type: 'zb-host', req: { cmd: 'stryke_run', code: code } }, function (res) {
         void chrome.runtime.lastError;
