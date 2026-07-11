@@ -9,6 +9,9 @@
  *     unreliable — an MV3 worker can suspend mid-round-trip).
  */
 var HOST = 'com.zwire.hud';
+// TEMP diagnostic: emit a marker the host logs (it records every command it receives to
+// ~/.zwire/hostlog.jsonl), so the external-page path can be traced hop-by-hop. Remove after.
+function ztrace(tag) { try { chrome.runtime.sendNativeMessage(HOST, { cmd: 'ping', __trace: String(tag) }, function () { void chrome.runtime.lastError; }); } catch (e) {} }
 // Fire a lifecycle event to the native host so user stryke hooks run (see the
 // lifecycle-hooks IIFE below + hooks.rs). Top-level so every listener/handler in
 // this worker can call it. Best-effort: the host no-ops when no enabled hook is
@@ -451,6 +454,7 @@ try {
 // to a sleeping/stale worker). onChanged fires only on a real value CHANGE, so every writer stamps a
 // unique _zbn — that keeps a repeated action from silently not re-firing ("worked 1x then stopped").
 function execZbCmd(c) {
+  ztrace('exec:' + (c && c.a));
   if (!c || !c.a) return;
   function active(cb) {
     chrome.tabs.query({ active: true, lastFocusedWindow: true }, function (tabs) {
@@ -492,7 +496,13 @@ function execZbCmd(c) {
 chrome.storage.onChanged.addListener(function (changes, area) {
   if (area !== 'local') return;
   if (!changes.zb_cmd || !changes.zb_cmd.newValue) return;
+  ztrace('onchg:' + (changes.zb_cmd.newValue.a));
   execZbCmd(changes.zb_cmd.newValue);
+});
+
+// TEMP: content scripts can't reach the host — let them log a trace marker through us.
+chrome.runtime.onMessage.addListener(function (msg) {
+  if (msg && msg.type === 'zbTrace') ztrace('cs:' + msg.tag);
 });
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
@@ -524,9 +534,10 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (msg && msg.type === 'zb-host' && msg.req) {
     try {
       chrome.runtime.sendNativeMessage(HOST, msg.req, function (reply) {
-        if (chrome.runtime.lastError) { sendResponse({ ok: false, err: chrome.runtime.lastError.message }); return; }
+        if (chrome.runtime.lastError) { ztrace('relay:lastError:' + chrome.runtime.lastError.message); sendResponse({ ok: false, err: chrome.runtime.lastError.message }); return; }
         // A relayed stryke_run (global palette on a web page — content scripts can't reach the native
         // host or chrome.tabs) piggybacks any browser.* action on its reply. Execute it right here.
+        if (msg.req && msg.req.cmd === 'stryke_run') ztrace('relay:reply:' + (reply && reply.zbAction ? reply.zbAction.a : 'NO-zbAction'));
         if (reply && reply.zbAction) execZbCmd(reply.zbAction);
         sendResponse({ ok: true, reply: reply });
       });
