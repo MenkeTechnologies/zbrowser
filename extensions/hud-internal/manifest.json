@@ -261,6 +261,8 @@
         "zpanels.js",
         "zextras.js",
         "ztrash.js",
+        "zcookies.js",
+        "zspatial.js",
         "zvim.js"
       ],
       "run_at": "document_start",

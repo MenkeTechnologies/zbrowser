@@ -183,6 +183,8 @@
       { icon: '🌙', label: 'Hibernate this tab', detail: 'discard', run: function () { cmd({ a: 'discardTab' }); } },
       { icon: '▦', label: 'Group tabs by domain', detail: 'tab stacks', run: function () { cmd({ a: 'groupByDomain' }); } },
       { icon: '▤', label: 'Ungroup all tabs', detail: 'clear tab stacks', run: function () { cmd({ a: 'ungroupTabs' }); } },
+      { icon: '🍪', label: 'Toggle cookie-banner blocker', detail: 'hide consent popups', run: function () { try { if (window.__zbCookiesToggle) window.__zbCookiesToggle(); } catch (e) {} } },
+      { icon: '⤢', label: 'Toggle spatial navigation', detail: 'Shift+Arrow link jump', run: function () { try { if (window.__zbSpatialToggle) window.__zbSpatialToggle(); } catch (e) {} } },
       { icon: '⧉', label: 'Duplicate tab', run: function () { cmd({ a: 'duplicateTab' }); } },
       { icon: '↺', label: 'Reopen closed tab', run: function () { cmd({ a: 'reopenTab' }); } },
       { icon: '✕', label: 'Close tab', run: function () { cmd({ a: 'closeTab' }); } },

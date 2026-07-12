@@ -156,7 +156,9 @@ websites in a docked side panel; the `frame_bust` rule lets any site load),
 **pop-out video** (Picture-in-Picture), **quick note from selection** (save the
 current selection into Notes), a **Trash** dropdown (`ztrash` — restore recently
 closed tabs), **tab hibernation** (discard this / other tabs) + **tab stacks**
-(group tabs by domain), and an **inline
+(group tabs by domain), a **cookie-banner blocker** (`zcookies` — hides consent /
+GDPR popups + unlocks scroll), **spatial navigation** (`zspatial` — Shift+Arrow
+jumps focus to the nearest link/field), and an **inline
 compute layer** (ported from zgo-core): type a sum (`2^10`, `sqrt(2)+1`), a unit
 conversion (`10 km to miles`, `72 f in c`, `1 gb to mb`), a live currency
 conversion (`100 usd to eur`, rates fetched + cached by the host), a percentage

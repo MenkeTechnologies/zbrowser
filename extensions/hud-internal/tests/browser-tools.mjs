@@ -86,4 +86,35 @@ function load(file) { const win = {}; new Function('window', fs.readFileSync(new
   assert.deepEqual(R.partition([]), { unread: 0, total: 0 });
 }
 
-console.log('browser tools (reader / gestures / reload / panels / pip / readinglist): all assertions passed');
+// ---- Hide Cookie Warnings: consent-text heuristic ----
+{
+  const c = load('zcookies.js');
+  const isConsent = c.__zbIsConsent;
+  assert.ok(isConsent, 'consent heuristic not exposed');
+  assert.ok(isConsent('We use cookies to improve your experience. Accept all'), 'cookie notice matches');
+  assert.ok(isConsent('This site asks for your consent under GDPR'), 'gdpr matches');
+  assert.ok(isConsent('Manage your preferences'), 'manage-preferences matches');
+  assert.ok(!isConsent('Buy two cookies and get one free'), 'a bakery is not a consent banner');
+  assert.ok(!isConsent('Sign in to continue'), 'a login is not a consent banner');
+}
+
+// ---- Spatial Navigation: nearest-in-direction picker ----
+{
+  const sp = load('zspatial.js');
+  const pick = sp.__zbSpatialPick;
+  assert.ok(pick, 'spatial picker not exposed');
+  const from = { cx: 100, cy: 100 };
+  const cands = [
+    { cx: 100, cy: 200 },   // 0: directly below
+    { cx: 400, cy: 110 },   // 1: far right
+    { cx: 100, cy: 40 },    // 2: above
+    { cx: 120, cy: 500 },   // 3: far below, slightly off
+  ];
+  assert.equal(pick(cands, from, 'down'), 0, 'down → the aligned one directly below');
+  assert.equal(pick(cands, from, 'up'), 2, 'up → the one above');
+  assert.equal(pick(cands, from, 'right'), 1, 'right → the rightward one');
+  assert.equal(pick(cands, from, 'left'), -1, 'nothing to the left → -1');
+  assert.equal(pick([], from, 'down'), -1);
+}
+
+console.log('browser tools (reader / gestures / reload / panels / pip / readinglist / cookies / spatial): all assertions passed');
