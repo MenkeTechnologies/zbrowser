@@ -1,0 +1,24 @@
+/* zwire HUD Feeds — RSS/Atom reader, themed off the active scheme. */
+.zf-wrap { display: grid; grid-template-columns: 260px 1fr; gap: 14px; align-items: start; height: calc(100vh - 130px); }
+@media (max-width: 720px) { .zf-wrap { grid-template-columns: 1fr; height: auto; } }
+
+.zf-list { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.zf-toolbar { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+.zf-btn { background: var(--bg-card); color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; font: 12px "Share Tech Mono", Monaco, monospace; cursor: pointer; }
+.zf-btn:hover { color: var(--cyan); border-color: var(--cyan); }
+.zf-frow { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; }
+.zf-frow:hover { background: var(--bg-hover); }
+.zf-sel { background: var(--cyan-dim); }
+.zf-fname { flex: 1; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zf-fn { font-size: 10px; color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+.zf-x { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; }
+.zf-x:hover { color: var(--accent); }
+.zf-empty { padding: 16px; color: var(--text-muted); font-size: 12px; text-align: center; }
+
+.zf-items { height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.zf-item { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); padding: 12px 14px; cursor: pointer; }
+.zf-item:hover { border-color: var(--cyan); }
+.zf-itop { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.zf-ifeed { color: var(--cyan); }
+.zf-ititle { font-size: 14px; color: var(--text); font-weight: 600; margin-bottom: 4px; }
+.zf-isum { font-size: 12px; color: var(--text-dim); line-height: 1.5; }

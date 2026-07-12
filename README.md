@@ -146,7 +146,11 @@ exposé** (`zexpose` — a tile grid with one tile per tab showing a live text
 excerpt of the page's content; click to focus that tab, Esc to close; ports
 zterm's ztmux pane exposé via `ZGui.expose`), **Page Actions** (`zpageactions` —
 Vivaldi-style live CSS-filter transforms on the current page: grayscale, sepia,
-invert, high-contrast, blur, hue-rotate…, remembered per site), and an **inline
+invert, high-contrast, blur, hue-rotate…, remembered per site), a **Reader view**
+(`zreader` — distraction-free article extraction), **Periodic reload**, **Break
+mode** (`zbreak` — pause every tab behind a break screen), **Capture page**
+(screenshot → download), **mouse gestures** (`zgestures` — right-drag navigation:
+back / forward / new / close / reload), and an **inline
 compute layer** (ported from zgo-core): type a sum (`2^10`, `sqrt(2)+1`), a unit
 conversion (`10 km to miles`, `72 f in c`, `1 gb to mb`), a live currency
 conversion (`100 usd to eur`, rates fetched + cached by the host), a percentage
@@ -161,7 +165,8 @@ of `chrome://{extensions,settings,history,bookmarks,downloads,version}` — the
 **History** page defaults to a full-height, all-time list (Cmd+Y) and adds a
 Vivaldi-style calendar dashboard (Month/Week/Day: a month calendar with per-day
 activity, a per-day Entries list, and an analytics rail — a Browsing Activity area
-chart, a Link Transition donut, and Top Domains) — plus a **Notes** manager
+chart, a Link Transition donut, and Top Domains) — plus a **Feeds** RSS/Atom
+reader, a **Notes** manager
 (Markdown notes in folders, ported from Vivaldi), a **Translate** panel
 (30+ languages, auto-detect, ported from Vivaldi),
 Keyboard, Commands, Sessions, a **Hooks** page, CI, a **Host** console, a

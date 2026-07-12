@@ -254,6 +254,10 @@
         "lib/zgui-core/webui/expose.js",
         "zexpose.js",
         "zpageactions.js",
+        "zreader.js",
+        "zreload.js",
+        "zbreak.js",
+        "zgestures.js",
         "zvim.js"
       ],
       "run_at": "document_start",

@@ -91,6 +91,16 @@ fi
 command rm -f /tmp/zwire-hud-pa.$$
 echo
 
+cyber_section "VIVALDI TOOLS (reader / gestures / reload / feeds)"
+if node tests/browser-tools.mjs 2>/tmp/zwire-hud-vt.$$ && node tests/feeds.mjs 2>>/tmp/zwire-hud-vt.$$; then
+  cyber_ok "vivaldi tools nominal"
+else
+  FAIL=1; cyber_fail "vivaldi tools compromised"
+  command sed 's/^/    /' /tmp/zwire-hud-vt.$$ | head -30
+fi
+command rm -f /tmp/zwire-hud-vt.$$
+echo
+
 cyber_section "NATIVE HOST (rust build)"
 if command -v cargo >/dev/null 2>&1; then
   if ( cd native/zwire-host && cargo build --quiet ) 2>/tmp/zwire-hud-rs.$$; then

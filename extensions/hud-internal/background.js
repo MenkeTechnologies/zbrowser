@@ -682,6 +682,15 @@ function execZbCmd(c) {
       if (c.tabId != null) chrome.tabs.update(c.tabId, { active: true }, function () { void chrome.runtime.lastError; });
     } else if (c.a === 'exposeCapture') {
       captureExcerpts();   // grab a text excerpt of every http(s) tab for the exposé previews
+    } else if (c.a === 'capturePage') {
+      // Screenshot the visible tab and save it (ports Vivaldi's capture page).
+      try {
+        chrome.tabs.captureVisibleTab(null, { format: 'png' }, function (dataUrl) {
+          void chrome.runtime.lastError;
+          if (!dataUrl) return;
+          try { chrome.downloads.download({ url: dataUrl, filename: 'zwire-capture-' + Date.now() + '.png', saveAs: false }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+        });
+      } catch (e) {}
     } else if (c.a === 'mergeWindows') {
       active(function (t) { if (!t) return; chrome.tabs.query({}, function (all) { (all || []).forEach(function (x) { if (x.windowId !== t.windowId) chrome.tabs.move(x.id, { windowId: t.windowId, index: -1 }, function () { void chrome.runtime.lastError; }); }); }); });
     // --- history ---
