@@ -282,8 +282,16 @@
   // bridge the custom stryke step uses; currency rates come from the hud worker
   // (zwireGetRates) since the new-tab page can't fetch a cross-origin API here.
   function computeCopy(t) { try { navigator.clipboard.writeText(t); } catch (e) {} }
-  function computeStryke(code) { bridgeHost({ cmd: 'stryke_run', code: code }, function (res) { toastReply('stryke', '⟨stryke⟩', res, false); }); }
-  var COMPUTECTX = { copy: computeCopy, toast: function (t) { hostToast(t); }, runStryke: computeStryke };
+  // Live stryke eval for the `@`-prefix (zgo-style): host stdout becomes the row, ⏎ copies.
+  function evalStryke(code, cb) {
+    bridgeHost({ cmd: 'stryke_run', code: code }, function (res) {
+      if (!res || !res.ok) { cb({ err: (res && res.err) || 'no response' }); return; }
+      var r = res.reply || {};
+      if (!r.ok) { cb({ err: r.err || 'error' }); return; }
+      cb({ out: (r.stdout || '').replace(/\s+$/, '') || (r.stderr || '').trim() });
+    });
+  }
+  var COMPUTECTX = { copy: computeCopy, toast: function (t) { hostToast(t); }, evalStryke: evalStryke, refresh: refreshPalette };
   var computeProvider = PC.makeComputeProvider ? PC.makeComputeProvider(COMPUTECTX) : function () { return []; };
   function getRates(cb) { try { chrome.runtime.sendMessage(HUD_ID, { type: 'zwireGetRates' }, function (r) { void chrome.runtime.lastError; cb(r); }); } catch (e) { cb(null); } }
   function refreshPalette() { try { var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {} }

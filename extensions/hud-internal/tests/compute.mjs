@@ -7,6 +7,10 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 
+// Run scheduled stryke evals immediately so the async live-eval path is testable.
+globalThis.setTimeout = (fn) => { try { fn(); } catch (e) {} return 0; };
+globalThis.clearTimeout = () => {};
+
 const src = fs.readFileSync(new URL('../palette-cmds.js', import.meta.url), 'utf8');
 const root = {};
 new Function('window', src)(root);
@@ -64,8 +68,9 @@ assert.ok(near(PC.currencyConvert(1, 'EUR', 'JPY').result, 150 / 0.92));
 assert.throws(() => PC.currencyConvert(1, 'USD', 'GBP'), /no rate/i, 'unknown currency must throw');
 
 // ---- provider routing: exactly one top-pinned copyable row per compute query ----
-let copied = null, stryked = null;
-const prov = PC.makeComputeProvider({ copy: (t) => { copied = t; }, toast: () => {}, runStryke: (c) => { stryked = c; } });
+let copied = null, evaled = null;
+// evalStryke resolves synchronously here (fake immediate clock above), returning stdout.
+const prov = PC.makeComputeProvider({ copy: (t) => { copied = t; }, toast: () => {}, refresh: () => {}, evalStryke: (code, cb) => { evaled = code; cb({ out: 'OUT:' + code }); } });
 const one = (q) => { const r = prov(q); return r.length ? r[0] : null; };
 
 let row = one('2+3*4');
@@ -78,10 +83,13 @@ assert.equal(one('20% of 150').label, '= 30', 'percentage routes to percent row'
 assert.match(one('100 usd to eur').label, /92 EUR/, 'currency routes once rates are loaded');
 assert.match(one('10 km to miles').label, /miles/, 'a unit like km never steals the currency path');
 
-row = one('@ p 2+2');
-assert.ok(row && row.label === 'stryke: p 2+2', 'the @-prefix routes to a stryke row');
+// @-prefix live-evaluates: stdout is the row label, ⏎ copies it (zgo behavior).
+row = one('@ p for d');
+assert.equal(evaled, 'p for d', 'the @-prefix evaluates the stryke code through the host');
+assert.equal(row.label, 'OUT:p for d', 'the stryke stdout becomes the row label');
+assert.match(row.detail, /⏎ copies/, 'the row advertises ⏎ copies');
 row.run();
-assert.equal(stryked, 'p 2+2', 'running the stryke row dispatches the code');
+assert.equal(copied, 'OUT:p for d', 'running the stryke row copies the output');
 
 assert.equal(prov('github').length, 0, 'a bare word yields no compute row');
 assert.equal(prov('5').length, 0, 'a bare number yields no compute row (not a sum)');

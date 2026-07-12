@@ -377,7 +377,20 @@
   // percentage, plus `@ <code>` stryke through the host relay. The result pins to
   // the top row and copies to the clipboard on ⏎. Currency rates come from the
   // worker (see zbGetRates), primed on open so the table is ready by first type.
-  var COMPUTECTX = { copy: clip, toast: function (t) { hostToast(t); }, runStryke: runStryke };
+  // Live stryke eval for the `@`-prefix: run through the host and return stdout
+  // (the palette shows it as the top row; ⏎ copies). Mirrors zgo's stryke.run row.
+  function evalStryke(code, cb) {
+    try {
+      chrome.runtime.sendMessage({ type: 'zb-host', req: { cmd: 'stryke_run', code: code } }, function (res) {
+        void chrome.runtime.lastError;
+        if (!res || !res.ok) { cb({ err: (res && res.err) || 'no response' }); return; }
+        var r = res.reply || {};
+        if (!r.ok) { cb({ err: r.err || 'error' }); return; }
+        cb({ out: (r.stdout || '').replace(/\s+$/, '') || (r.stderr || '').trim() });
+      });
+    } catch (e) { cb({ err: String(e) }); }
+  }
+  var COMPUTECTX = { copy: clip, toast: function (t) { hostToast(t); }, evalStryke: evalStryke, refresh: refreshPalette };
   var computeProvider = PC.makeComputeProvider ? PC.makeComputeProvider(COMPUTECTX) : function () { return []; };
   function getRates(cb) { try { chrome.runtime.sendMessage({ type: 'zbGetRates' }, function (r) { void chrome.runtime.lastError; cb(r); }); } catch (e) { cb(null); } }
   function refreshPalette() { try { var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {} }

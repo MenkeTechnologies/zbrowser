@@ -368,8 +368,31 @@
     return { amount: amount, from: lt[1], to: rt[0] };
   }
 
+  // ---- inline stryke: `@ <code>` live-evaluates like zgo's launcher ---------
+  // The result is async (host round-trip), so — like currency rates — we cache
+  // the stdout per code and re-render (ctx.refresh) when it lands. Enter copies.
+  var strykeCache = {}, strykeInflight = {}, strykePending = 0, strykePendingCode = '';
+  function kickStryke(code, ctx) {
+    if (strykeCache[code] || strykeInflight[code] || !ctx.evalStryke) return;
+    if (strykePendingCode === code) return;   // already scheduled this exact code
+    strykePendingCode = code;
+    if (strykePending) { try { clearTimeout(strykePending); } catch (e) {} }
+    // Debounce keystrokes: only the code the user pauses on actually evaluates.
+    strykePending = setTimeout(function () {
+      strykePendingCode = '';
+      if (strykeCache[code] || strykeInflight[code]) return;
+      strykeInflight[code] = true;
+      ctx.evalStryke(code, function (res) {
+        strykeInflight[code] = false;
+        strykeCache[code] = res || { out: '' };
+        if (Object.keys(strykeCache).length > 200) strykeCache = {};   // bound growth
+        try { if (ctx.refresh) ctx.refresh(); } catch (e) {}
+      });
+    }, 200);
+  }
+
   // ---- the shared compute provider ----------------------------------------
-  // ctx: { copy(text), toast(text,bad?), runStryke(code), stamp() }.
+  // ctx: { copy(text), toast(text,bad?), evalStryke(code,cb), refresh() }.
   var CALC_HINT = /[-+*/%^()]|\b(sqrt|cbrt|abs|ceil|floor|round|ln|log|log2|log10|exp|sin|cos|tan|pi|e)\b/;
   function copyRow(ctx, icon, label, detail, value) {
     return { icon: icon, label: label, detail: detail, top: true, run: function () {
@@ -381,11 +404,19 @@
     ctx = ctx || {};
     return function computeProvider(q) {
       q = (q || '').trim(); if (!q) return [];
-      // 1) stryke `@`-prefix — run inline stryke through the host bridge.
+      // 1) stryke `@`-prefix — live-evaluate inline through the host (zgo-style):
+      // stdout becomes the row, ⏎ copies it. Kicks an async eval, shows the cached
+      // result once it lands (ctx.refresh re-runs this provider).
       if (q.charAt(0) === '@') {
         var code = q.slice(1).trim(); if (!code) return [];
-        return [{ icon: 'ƛ', label: 'stryke: ' + code, detail: 'run · ⏎', top: true,
-          run: function () { try { if (ctx.runStryke) ctx.runStryke(code); } catch (e) {} } }];
+        if (!strykeCache[code]) kickStryke(code, ctx);   // may resolve synchronously under a fake clock (tests)
+        var sres = strykeCache[code];
+        if (sres) {
+          if (sres.err) return [{ icon: 'ƛ', label: 'stryke: error', detail: '@ ' + code + ' · ' + sres.err, top: true, run: function () {} }];
+          var sout = sres.out || '(no output)';
+          return [copyRow(ctx, 'ƛ', sout, 'stryke · ' + code + '  (⏎ copies)', sres.out || '')];
+        }
+        return [{ icon: 'ƛ', label: '…', detail: 'stryke · ' + code + '  (evaluating)', top: true, run: function () {} }];
       }
       // 2) currency (needs a loaded rate table + both codes known).
       try {
