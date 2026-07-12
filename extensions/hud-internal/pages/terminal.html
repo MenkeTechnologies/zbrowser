@@ -22,17 +22,7 @@
 <script src="../lib/zgui-core/webui/button-bar.js"></script>
 <script src="../lib/term/xterm.js"></script>
 <script src="../lib/term/terminal.js"></script>
-<script>
-  // terminal.js auto-injects #terminalPane + wires Ctrl+`. In this dedicated tab
-  // show it immediately (fills the viewport via CSS above) and spawn the PTY.
-  // Retry until terminal.js has injected the pane + exposed showTerminal.
-  (function boot() {
-    if (document.getElementById('terminalPane') && typeof window.showTerminal === 'function') {
-      window.showTerminal();
-    } else {
-      setTimeout(boot, 80);
-    }
-  })();
-</script>
+<!-- boot is an external same-origin script: the extension CSP (`script-src 'self'`) blocks inline JS -->
+<script src="terminal-boot.js"></script>
 </body>
 </html>
