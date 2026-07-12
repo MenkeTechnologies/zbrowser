@@ -490,6 +490,15 @@
     // async read — nav always works. Tabs (storage bus) are appended after.
     try { ZGui.palette.clear(); ZGui.palette.register(items()); if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); } ZGui.palette.open(); } catch (ex) {}
     try { if (PC.primeRates) PC.primeRates(getRates, refreshPalette); } catch (e) {}   // load FX rates for inline currency
+    // zpwrchrome pages (the sibling extension's tools). This palette is a CONTENT
+    // SCRIPT, which can't cross-ext message — so ask OUR worker to ping zpwrchrome
+    // (zwireZpwrPing). If it can't answer (disabled/removed) we show no dead rows.
+    try {
+      if (PC.makeZpwrItems) chrome.runtime.sendMessage({ type: 'zwireZpwrPing' }, function (r) {
+        if (chrome.runtime.lastError || !r || !r.alive) return;
+        try { ZGui.palette.register(PC.makeZpwrItems(open)); var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {}
+      });
+    } catch (e) {}
     try {
       chrome.storage.local.get(['zb_tabs', 'zb_exts', 'zb_frecent', 'zb_shortcuts', 'zb_custom_cmds'], function (o) {
         void chrome.runtime.lastError;

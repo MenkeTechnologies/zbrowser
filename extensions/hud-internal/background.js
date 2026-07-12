@@ -138,6 +138,18 @@ try {
     // zexpose reports each page's content excerpt (read from its own DOM) for the
     // exposé previews — reliable, no scripting API needed.
     if (msg.type === 'zbTabExcerpt') { setPreview(tid, msg.text); return; }
+    // The global palette (zpalette.js) is a CONTENT SCRIPT, which cannot send
+    // cross-extension messages. Relay its zpwrchrome liveness check from here (the
+    // SW can message other extensions) so the palette only lists zpwrchrome's rows
+    // when zpwrchrome is installed + enabled (a disabled one can't answer).
+    if (msg.type === 'zwireZpwrPing') {
+      try {
+        chrome.runtime.sendMessage(ZB_ZPWRCHROME_ID, { type: 'zwirePing' }, function (resp) {
+          sendResponse({ alive: !chrome.runtime.lastError && !!(resp && resp.ok) });
+        });
+      } catch (e) { sendResponse({ alive: false }); }
+      return true;   // async sendResponse
+    }
   });
 } catch (e) {}
 try { chrome.tabs.onRemoved.addListener(function (tid) { delete termOpenByTab[tid]; setPreview(tid, null); }); } catch (e) {}
@@ -236,6 +248,7 @@ try { chrome.runtime.onInstalled.addListener(seedCustomCmds); } catch (e) {}
 //   the new-tab page   -> the newtab extension's palette (cross-ext sendMessage)
 //   a HUD page         -> that page's zg-boot palette (runtime broadcast)
 var ZB_NEWTAB_ID = 'gpoepnekoiplhkegjpocnpeijiefgieb';
+var ZB_ZPWRCHROME_ID = 'hpppdchpnphmiijdeanibpcadgknmaja';
 try {
   chrome.commands.onCommand.addListener(function (command) {
     if (command !== 'open-palette') return;
@@ -247,6 +260,9 @@ try {
       var selfPages = 'chrome-extension://' + chrome.runtime.id + '/pages/';
       if (url.indexOf('chrome://newtab') === 0 || url.indexOf('chrome-extension://' + ZB_NEWTAB_ID + '/') === 0) {
         try { chrome.runtime.sendMessage(ZB_NEWTAB_ID, { type: 'zwireOpenPalette' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      } else if (url.indexOf('chrome-extension://' + ZB_ZPWRCHROME_ID + '/') === 0) {
+        // zpwrchrome page: its own palette (lib/zpc-palette.js) via cross-ext relay.
+        try { chrome.runtime.sendMessage(ZB_ZPWRCHROME_ID, { type: 'zwireOpenPalette' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
       } else if (url.indexOf(selfPages) === 0) {
         try { chrome.runtime.sendMessage({ type: 'zwireOpenPalette' }, function () { void chrome.runtime.lastError; }); } catch (e) {}
       } else if (tab.id != null) {

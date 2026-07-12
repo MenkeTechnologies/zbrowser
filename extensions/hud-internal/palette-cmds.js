@@ -76,6 +76,44 @@
     };
   }
 
+  // zpwrchrome pages — the sibling extension's tool surfaces (Downloads, Pass,
+  // Userscripts, Host Console, …). Listed here so EVERY palette (the HUD content
+  // script, the New Tab, and zpwrchrome's own pages) offers the same rows and
+  // can't drift. Absolute chrome-extension:// URLs, so the consumer's open(url)
+  // routes to them the same as any other destination. Backend-agnostic.
+  // NOTE: the id is zpwrchrome's fixed key-derived id; parity assumes it stays
+  // installed + enabled (a palette row to a disabled extension opens nothing).
+  var ZPWR_ID = 'hpppdchpnphmiijdeanibpcadgknmaja';
+  var ZPWR_BASE = 'chrome-extension://' + ZPWR_ID + '/scripts-manager/';
+  var ZPWR_PAGES = [
+    ['⚡', 'Dashboard', 'dashboard.html'],
+    ['📥', 'Downloads', 'downloads.html'],
+    ['📜', 'Userscripts', 'manager.html'],
+    ['🔑', 'Pass', 'pass.html'],
+    ['🔌', 'Host Console', 'host.html'],
+    ['🔍', 'Find in All Tabs', 'find-all.html'],
+    ['📖', 'Reader Mode', 'reader-mode.html'],
+    ['🌙', 'Lights Off', 'lights-off.html'],
+    ['🎨', 'Cyberpunk Theme', 'theme-injector.html'],
+    ['🧬', 'ModHeader', 'modheader.html'],
+    ['🕵', 'User-Agent Switcher', 'ua-switcher.html'],
+    ['⚙', 'Download Settings', 'dl-settings.html'],
+    ['⚖', 'Download Rules', 'dl-rules.html'],
+    ['🧯', 'Extension Filter', 'dl-extfilter.html'],
+    ['⌨', 'Post-Download Commands', 'dl-postcommands.html'],
+    ['🖥', 'Download Interface', 'dl-interface.html'],
+    ['⚠', 'Diagnostics', 'dl-diag.html'],
+    ['❔', 'Help', 'dl-help.html'],
+    ['ℹ', 'About', 'dl-about.html']
+  ];
+  // makeZpwrItems(open) -> palette rows; `open(url)` is the consumer's nav adapter.
+  function makeZpwrItems(open) {
+    return ZPWR_PAGES.map(function (p) {
+      var url = ZPWR_BASE + p[2];
+      return { icon: p[0], label: 'zpwrchrome: ' + p[1], detail: p[2], run: function () { open(url); } };
+    });
+  }
+
   var TYPE_LABEL = { url: 'open url', shell: 'shell', stryke: 'stryke', js: 'javascript', applescript: 'applescript', batch: 'batch', action: 'action', scheme: 'scheme', host: 'host' };
   function typeLabel(t) { return TYPE_LABEL[t] || 'custom'; }
   function isDefaultCmd(e) { return String((e && e.id) || '').indexOf('def-') === 0; }
@@ -442,6 +480,9 @@
 
   root.ZWIRE_PALETTE_CMDS = {
     SEARCH: SEARCH,
+    ZPWR_ID: ZPWR_ID,
+    ZPWR_PAGES: ZPWR_PAGES,
+    makeZpwrItems: makeZpwrItems,
     slug: slug,
     typeLabel: typeLabel,
     stepsSummary: stepsSummary,

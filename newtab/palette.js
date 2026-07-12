@@ -343,6 +343,14 @@
     } catch (e) {}
     try { frecentItems(function (fi) { try { ZGui.palette.register(fi); var inpf = document.querySelector('.palette-input'); if (inpf) inpf.dispatchEvent(new Event('input')); } catch (e) {} }); } catch (e) {}
     try { tabItems(function (ti) { try { ZGui.palette.register(ti); var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {} }); } catch (e) {}
+    // zpwrchrome pages (the sibling extension's tools). Ping it first — if the user
+    // disabled or removed zpwrchrome it can't answer, so we never show dead rows.
+    try {
+      if (PC.ZPWR_ID && PC.makeZpwrItems) chrome.runtime.sendMessage(PC.ZPWR_ID, { type: 'zwirePing' }, function (resp) {
+        if (chrome.runtime.lastError || !resp || !resp.ok) return;
+        try { ZGui.palette.register(PC.makeZpwrItems(goCurrent)); var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {}
+      });
+    } catch (e) {}
   }
   window.__zbPaletteOpen = openPalette;
 
