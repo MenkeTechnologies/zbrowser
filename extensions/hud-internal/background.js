@@ -465,6 +465,121 @@ function getExchangeRates(cb) {
     });
   } catch (e) { cb(null); }
 }
+// ---- Full-page screenshot (ported from zpwrchrome lib/screenshot.js) --------
+// Scroll the active tab through its scrollHeight in viewport-sized steps (200px
+// overlap so sticky/fixed banners get overwritten by the next tile), capture each
+// viewport via captureVisibleTab (throttled ~2Hz → 600ms gap + backoff), stitch
+// the tiles on an OffscreenCanvas, save the PNG via chrome.downloads. Caps bound
+// runaway infinite-scroll pages. Restricted/oversized pages fall back to visible.
+var SS_GAP_MS = 600, SS_BACKOFF = [1100, 2500, 5000], SS_MAX_TILES = 60, SS_MAX_PX = 16000 * 16000, SS_OVERLAP = 200;
+function ssProbeDims() {
+  var root = document.scrollingElement || document.documentElement;
+  return { scrollX: window.scrollX, scrollY: window.scrollY, vw: window.innerWidth, vh: window.innerHeight,
+    sw: Math.max(root.scrollWidth, root.clientWidth, (document.body && document.body.scrollWidth) || 0),
+    sh: Math.max(root.scrollHeight, root.clientHeight, (document.body && document.body.scrollHeight) || 0),
+    dpr: window.devicePixelRatio || 1 };
+}
+function ssScrollTo(x, y) { window.scrollTo({ left: x, top: y, behavior: 'instant' }); }
+function ssSuppress() {
+  var root = document.documentElement, body = document.body || root;
+  var saved = { scrollX: window.scrollX, scrollY: window.scrollY, ro: root.style.overflow, bo: body ? body.style.overflow : '', roy: root.style.overflowY, boy: body ? body.style.overflowY : '' };
+  root.style.overflow = 'hidden'; root.style.overflowY = 'hidden';
+  if (body) { body.style.overflow = 'hidden'; body.style.overflowY = 'hidden'; }
+  return saved;
+}
+function ssRestore(saved) {
+  var root = document.documentElement, body = document.body || root;
+  root.style.overflow = saved.ro || ''; root.style.overflowY = saved.roy || '';
+  if (body) { body.style.overflow = saved.bo || ''; body.style.overflowY = saved.boy || ''; }
+  window.scrollTo({ left: saved.scrollX, top: saved.scrollY, behavior: 'instant' });
+}
+function ssExec(tabId, func, args) {
+  return new Promise(function (resolve, reject) {
+    try {
+      chrome.scripting.executeScript({ target: { tabId: tabId, allFrames: false }, func: func, args: args || [] }, function (res) {
+        if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+        resolve(res && res[0] ? res[0].result : undefined);
+      });
+    } catch (e) { reject(e); }
+  });
+}
+function ssSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+// captureVisibleTab is throttled at ~2Hz; back off on the quota error.
+function ssCaptureRetry(windowId) {
+  return new Promise(function (resolve, reject) {
+    var attempt = 0;
+    (function tryOnce() {
+      chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, function (dataUrl) {
+        var err = chrome.runtime.lastError;
+        if (!err && dataUrl) { resolve(dataUrl); return; }
+        var msg = (err && err.message) || 'capture failed';
+        if (!/MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND/i.test(msg) || attempt >= SS_BACKOFF.length) { reject(new Error(msg)); return; }
+        setTimeout(tryOnce, SS_BACKOFF[attempt++]);
+      });
+    })();
+  });
+}
+async function ssCaptureTiles(tabId, windowId, d) {
+  var tiles = [], cols = Math.max(1, Math.ceil(d.sw / d.vw));
+  var yStep = Math.max(1, d.vh - SS_OVERLAP);
+  var rows = Math.max(1, Math.ceil(Math.max(0, d.sh - d.vh) / yStep) + 1);
+  for (var r = 0; r < rows; r++) {
+    for (var col = 0; col < cols; col++) {
+      var sx = Math.min(col * d.vw, Math.max(0, d.sw - d.vw));
+      var sy = Math.min(r * yStep, Math.max(0, d.sh - d.vh));
+      await ssExec(tabId, ssScrollTo, [sx, sy]);
+      await ssSleep(SS_GAP_MS);   // settle for paint + lazy-loaded images
+      tiles.push({ sx: sx, sy: sy, dataUrl: await ssCaptureRetry(windowId) });
+    }
+  }
+  return tiles;
+}
+async function ssStitch(tiles, sw, sh, dpr) {
+  var W = Math.round(sw * dpr), H = Math.round(sh * dpr);
+  var canvas = new OffscreenCanvas(W, H), ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < tiles.length; i++) {
+    var blob = await (await fetch(tiles[i].dataUrl)).blob();
+    var bmp = await createImageBitmap(blob);
+    ctx.drawImage(bmp, Math.round(tiles[i].sx * dpr), Math.round(tiles[i].sy * dpr));
+    bmp.close();
+  }
+  return await canvas.convertToBlob({ type: 'image/png' });
+}
+function ssBlobToDataUrl(blob) {
+  return blob.arrayBuffer().then(function (buf) {
+    var bytes = new Uint8Array(buf), CH = 0x8000, bin = '';
+    for (var i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    return 'data:image/png;base64,' + btoa(bin);
+  });
+}
+async function captureFullPage() {
+  var tabs = await new Promise(function (r) { chrome.tabs.query({ active: true, currentWindow: true }, function (t) { void chrome.runtime.lastError; r(t || []); }); });
+  var tab = tabs[0];
+  if (!tab || !tab.id) return;
+  if (!/^(https?|file):/i.test(tab.url || '')) { captureVisible(); return; }   // restricted page → visible-only
+  var d;
+  try { d = await ssExec(tab.id, ssProbeDims); } catch (e) { captureVisible(); return; }
+  if (!d || !d.vw || !d.vh) { captureVisible(); return; }
+  var cols = Math.max(1, Math.ceil(d.sw / d.vw)), rows = Math.max(1, Math.ceil(d.sh / d.vh));
+  if (cols * rows > SS_MAX_TILES || d.sw * d.dpr * d.sh * d.dpr > SS_MAX_PX) { captureVisible(); return; }   // too large → visible
+  var saved = await ssExec(tab.id, ssSuppress), tiles;
+  try { tiles = await ssCaptureTiles(tab.id, tab.windowId, d); }
+  finally { try { await ssExec(tab.id, ssRestore, [saved]); } catch (e) {} }
+  var dataUrl = await ssBlobToDataUrl(await ssStitch(tiles, d.sw, d.sh, d.dpr));
+  var host = ''; try { host = new URL(tab.url).hostname.replace(/[^a-z0-9.-]/gi, ''); } catch (e) {}
+  try { chrome.downloads.download({ url: dataUrl, filename: 'zwire-' + (host || 'page') + '-' + Date.now() + '.png', saveAs: false }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+}
+function captureVisible() {
+  try {
+    chrome.tabs.captureVisibleTab(null, { format: 'png' }, function (dataUrl) {
+      void chrome.runtime.lastError;
+      if (!dataUrl) return;
+      try { chrome.downloads.download({ url: dataUrl, filename: 'zwire-capture-' + Date.now() + '.png', saveAs: false }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    });
+  } catch (e) {}
+}
+
 function pollCi() {
   try {
     chrome.storage.local.get(['zb_ci', 'zb_ci_status'], function (o) {
@@ -683,14 +798,9 @@ function execZbCmd(c) {
     } else if (c.a === 'exposeCapture') {
       captureExcerpts();   // grab a text excerpt of every http(s) tab for the exposé previews
     } else if (c.a === 'capturePage') {
-      // Screenshot the visible tab and save it (ports Vivaldi's capture page).
-      try {
-        chrome.tabs.captureVisibleTab(null, { format: 'png' }, function (dataUrl) {
-          void chrome.runtime.lastError;
-          if (!dataUrl) return;
-          try { chrome.downloads.download({ url: dataUrl, filename: 'zwire-capture-' + Date.now() + '.png', saveAs: false }, function () { void chrome.runtime.lastError; }); } catch (e) {}
-        });
-      } catch (e) {}
+      captureFullPage().catch(function () {});   // full-page scroll+stitch (falls back to visible)
+    } else if (c.a === 'captureVisible') {
+      captureVisible();
     } else if (c.a === 'mergeWindows') {
       active(function (t) { if (!t) return; chrome.tabs.query({}, function (all) { (all || []).forEach(function (x) { if (x.windowId !== t.windowId) chrome.tabs.move(x.id, { windowId: t.windowId, index: -1 }, function () { void chrome.runtime.lastError; }); }); }); });
     // --- history ---

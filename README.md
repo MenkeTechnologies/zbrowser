@@ -148,8 +148,9 @@ zterm's ztmux pane exposé via `ZGui.expose`), **Page Actions** (`zpageactions` 
 Vivaldi-style live CSS-filter transforms on the current page: grayscale, sepia,
 invert, high-contrast, blur, hue-rotate…, remembered per site), a **Reader view**
 (`zreader` — distraction-free article extraction), **Periodic reload**, **Break
-mode** (`zbreak` — pause every tab behind a break screen), **Capture page**
-(screenshot → download), **mouse gestures** (`zgestures` — right-drag navigation:
+mode** (`zbreak` — pause every tab behind a break screen), **full-page capture**
+(scroll + `captureVisibleTab` slices stitched on an `OffscreenCanvas` → PNG, plus
+a visible-area capture), **mouse gestures** (`zgestures` — right-drag navigation:
 back / forward / new / close / reload), and an **inline
 compute layer** (ported from zgo-core): type a sum (`2^10`, `sqrt(2)+1`), a unit
 conversion (`10 km to miles`, `72 f in c`, `1 gb to mb`), a live currency
