@@ -49,6 +49,7 @@
 .zh-list { overflow-y: auto; }
 .zh-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .zh-row:hover { background: var(--bg-hover); }
+.zh-row.zh-navsel { background: var(--cyan-dim); outline: 1px solid var(--cyan); outline-offset: -1px; }
 .zh-time { font-size: 11px; color: var(--text-muted); width: 40px; flex-shrink: 0; }
 .zh-chip { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 700; color: #06080f; }

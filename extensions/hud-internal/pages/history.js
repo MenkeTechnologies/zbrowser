@@ -325,6 +325,7 @@
 
   function render() {
     hideTip();
+    navIndex = -1;
     body.innerHTML = '';
     body.appendChild(buildBar());
     if (scope === 'list') { body.appendChild(buildListView()); return; }   // full-height flat list
@@ -334,6 +335,24 @@
     wrap.appendChild(buildRail());
     body.appendChild(wrap);
   }
+
+  // Arrow-key navigation over the visible rows (List view + calendar Entries).
+  // ↑/↓ move the highlight, ⏎ opens it — works even while the filter box has
+  // focus (arrows there are otherwise inert), like a native history page.
+  var navIndex = -1;
+  function navRows() { return Array.prototype.slice.call(body.querySelectorAll('.zh-row')); }
+  function setNav(i) {
+    var rows = navRows(); if (!rows.length) { navIndex = -1; return; }
+    navIndex = Math.max(0, Math.min(rows.length - 1, i));
+    rows.forEach(function (r, k) { r.classList.toggle('zh-navsel', k === navIndex); });
+    var cur = rows[navIndex]; if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.altKey || e.metaKey || e.ctrlKey) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setNav(navIndex + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setNav(navIndex - 1); }
+    else if (e.key === 'Enter') { var rows = navRows(); if (navIndex >= 0 && rows[navIndex]) { e.preventDefault(); rows[navIndex].click(); } }
+  }, true);
 
   // Load the data the active scope needs (list = cheap all-time; calendar =
   // month getVisits), cached so toggling views doesn't re-fetch. Then render.

@@ -31,6 +31,7 @@ globalThis.document = {
   createTextNode: (t) => ({ textContent: t }),
   documentElement: makeEl('html'),
   body,
+  addEventListener() {}, removeEventListener() {},
 };
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
 globalThis.setTimeout = (fn) => { try { fn(); } catch (e) {} return 0; };
