@@ -56,21 +56,22 @@ const src = fs.readFileSync(new URL('../zexpose.js', import.meta.url), 'utf8');
       onChanged: { addListener: (fn) => { storageSub = fn; }, removeListener: () => { storageSub = null; } },
     },
   };
-  let exposeOpts = null;
+  let exposeOpts = null, lastSet = null;
   const win = { ZWIRE_HUD: { SCHEMES: { cyberpunk: { vars: {} } }, VAR_KEYS: [] },
-    ZGui: { expose: (host, opts) => { exposeOpts = opts; return { el: makeEl('div'), set() {} }; } } };
+    ZGui: { expose: (host, opts) => { exposeOpts = opts; return { el: makeEl('div'), set: (w) => { lastSet = w; } }; } } };
   globalThis.window = win;
 
   new Function('window', src)(win);
   assert.equal(typeof win.__zbExposeOpen, 'function', '__zbExposeOpen defined');
   win.__zbExposeOpen();
-  assert.ok(exposeOpts, 'ZGui.expose was called');
-  assert.equal(exposeOpts.windows.length, 1, 'one window read from zb_windows storage (not a message response)');
-  assert.equal(exposeOpts.windows[0].title, 'T');
+  assert.ok(exposeOpts, 'ZGui.expose was called (overlay mounted)');
+  assert.ok(lastSet && lastSet.length === 1, 'exposé filled from zb_windows storage (not a message response)');
+  assert.equal(lastSet[0].title, 'T');
   assert.ok(bodyEl.children.length >= 1, 'overlay mounted to body');
   assert.ok(storageSub, 'live-refresh subscribes to storage.onChanged');
   // a fresh zb_windows write updates the exposé in place.
   storageSub({ zb_windows: { newValue: [] } }, 'local');
+  assert.equal(lastSet.length, 0, 'a live zb_windows write patches the exposé');
 
   // picking a window routes to the focusWindow bus and closes.
   exposeOpts.onChoose(7);

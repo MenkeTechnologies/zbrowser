@@ -69,19 +69,30 @@
     overlay.appendChild(panel);
     (document.body || document.documentElement).appendChild(overlay);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
-    cmd({ a: 'ping' });   // wake the worker + refresh zb_windows (lands via onChanged below)
-    readWindows(function (wins) {
-      if (!overlay) return;
-      api = window.ZGui.expose(panel, {
-        windows: exposeModel(wins),
-        title: 'All Windows & Tabs',
-        hint: 'Click a window to focus it · Esc to close',
-        onChoose: function (id) { cmd({ a: 'focusWindow', windowId: id }); close(); },
-        onClose: close
-      });
+    // Mount immediately (may be empty for a moment), then fill from zb_windows.
+    api = window.ZGui.expose(panel, {
+      windows: [],
+      title: 'All Windows & Tabs',
+      hint: 'Click a window to focus it · Esc to close',
+      onChoose: function (id) { cmd({ a: 'focusWindow', windowId: id }); close(); },
+      onClose: close
     });
+    // Poke the worker to (re)write zb_windows, then read it. Retry a few times: on
+    // a fresh extension reload the worker may not have written it yet, and a
+    // sleeping MV3 worker needs the ping to wake before the store is fresh.
+    var tries = 0;
+    function pump() {
+      if (!overlay) return;
+      cmd({ a: 'ping' });
+      readWindows(function (wins) {
+        if (!overlay || !api) return;
+        if (wins && wins.length) { api.set(exposeModel(wins)); return; }   // got them
+        if (tries++ < 10) setTimeout(pump, 300);                            // keep trying ~3s
+      });
+    }
+    pump();
     // Live refresh while open — the worker rewrites zb_windows on tab/window events
-    // (and on our ping); patch tiles in place so focus/scroll never jump.
+    // (and on our pings); patch tiles in place so focus/scroll never jump.
     storageListener = function (ch, area) {
       if (area === 'local' && ch.zb_windows && api && api.set) api.set(exposeModel(ch.zb_windows.newValue || []));
     };

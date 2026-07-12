@@ -507,11 +507,14 @@ pollCi();
 // unreliable, per zpalette). Every normal window with its tabs.
 function updateWindows() {
   try {
-    chrome.windows.getAll({ populate: true }, function (ws) {
+    // populate:true needs no windowTypes, but pass them explicitly so app/popup
+    // windows aren't dropped. Keep anything with tabs; exclude only devtools.
+    chrome.windows.getAll({ populate: true, windowTypes: ['normal', 'popup', 'app'] }, function (ws) {
       void chrome.runtime.lastError;
-      chrome.storage.local.set({ zb_windows: (ws || []).filter(function (w) { return w.type === 'normal'; }).map(function (w) {
+      var mapped = (ws || []).filter(function (w) { return w.type !== 'devtools' && w.tabs && w.tabs.length; }).map(function (w) {
         return { id: w.id, focused: !!w.focused, incognito: !!w.incognito, state: w.state,
-          tabs: (w.tabs || []).map(function (t) { return { id: t.id, title: t.title, url: t.url, active: !!t.active, pinned: !!t.pinned }; }) }; }) });
+          tabs: (w.tabs || []).map(function (t) { return { id: t.id, title: t.title, url: t.url, active: !!t.active, pinned: !!t.pinned }; }) }; });
+      chrome.storage.local.set({ zb_windows: mapped });
     });
   } catch (e) {}
 }
