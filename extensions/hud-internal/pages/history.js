@@ -81,9 +81,10 @@
   var body = shell.body;
 
   var view = new Date(); view.setDate(1); view.setHours(0, 0, 0, 0);   // first of the visible month
-  var scope = 'month';   // month | week | day | list
+  var scope = 'list';   // list (default, all-time flat) | month | week | day
   var selected = new Date(); selected.setHours(0, 0, 0, 0);
   var monthVisits = [], byDay = {}, filterQ = '';
+  var allItems = [], listLoaded = false, monthLoaded = false;   // list = cheap all-time; calendar = month getVisits
   var tip = null;
 
   function monthRange(v) {
@@ -113,6 +114,16 @@
       });
     });
   }
+
+  // List view loads the WHOLE store cheaply (HistoryItems only, no getVisits) —
+  // the same all-time flat view the page had before the calendar was added.
+  function loadAllItems(cb) {
+    chrome.history.search({ text: '', maxResults: 50000, startTime: 0 }, function (res) {
+      void chrome.runtime.lastError;
+      cb((res || []).sort(function (a, b) { return (b.lastVisitTime || 0) - (a.lastVisitTime || 0); }));
+    });
+  }
+  function fmtDate(ts) { try { var d = new Date(ts); return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + hhmm(ts); } catch (e) { return ''; } }
 
   function sameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
   function weekOf(d) { var s = new Date(d); s.setDate(d.getDate() - d.getDay()); s.setHours(0, 0, 0, 0); var e = new Date(s); e.setDate(s.getDate() + 7); return [s.getTime(), e.getTime()]; }
@@ -148,21 +159,47 @@
 
   function buildBar() {
     var bar = el('div', 'zh-bar');
-    var label = el('div', 'zh-month', activeLabel()); bar.appendChild(label);
-    var prev = el('button', 'zh-btn zh-nav', '‹'); prev.title = 'Previous month';
-    prev.addEventListener('click', function () { view.setMonth(view.getMonth() - 1); reload(); });
-    var next = el('button', 'zh-btn zh-nav', '›'); next.title = 'Next month';
-    next.addEventListener('click', function () { view.setMonth(view.getMonth() + 1); reload(); });
-    var today = el('button', 'zh-btn', 'This Month');
-    today.addEventListener('click', function () { view = new Date(); view.setDate(1); view.setHours(0, 0, 0, 0); selected = new Date(); selected.setHours(0, 0, 0, 0); reload(); });
-    bar.appendChild(prev); bar.appendChild(next); bar.appendChild(today);
+    // Month nav is calendar-only; the list view is all-time so it just shows a label.
+    bar.appendChild(el('div', 'zh-month', scope === 'list' ? 'All History' : activeLabel()));
+    if (scope !== 'list') {
+      var prev = el('button', 'zh-btn zh-nav', '‹'); prev.title = 'Previous month';
+      prev.addEventListener('click', function () { view.setMonth(view.getMonth() - 1); reloadMonth(); });
+      var next = el('button', 'zh-btn zh-nav', '›'); next.title = 'Next month';
+      next.addEventListener('click', function () { view.setMonth(view.getMonth() + 1); reloadMonth(); });
+      var today = el('button', 'zh-btn', 'This Month');
+      today.addEventListener('click', function () { view = new Date(); view.setDate(1); view.setHours(0, 0, 0, 0); selected = new Date(); selected.setHours(0, 0, 0, 0); reloadMonth(); });
+      bar.appendChild(prev); bar.appendChild(next); bar.appendChild(today);
+    }
     bar.appendChild(el('div', 'zh-spacer'));
     ['List', 'Day', 'Week', 'Month'].forEach(function (v) {
       var b = el('button', 'zh-btn' + (scope === v.toLowerCase() ? ' on' : ''), v);
-      b.addEventListener('click', function () { scope = v.toLowerCase(); render(); });
+      b.addEventListener('click', function () { scope = v.toLowerCase(); refresh(); });
       bar.appendChild(b);
     });
     return bar;
+  }
+
+  // Full-height, all-time flat list — the default (Cmd+Y) view.
+  function buildListView() {
+    var items = allItems;
+    if (filterQ.trim()) { var ql = filterQ.toLowerCase(); items = items.filter(function (r) { return ((r.title || '') + ' ' + r.url).toLowerCase().indexOf(ql) >= 0; }); }
+    var box = el('div', 'zh-entries zh-listfull');
+    var hd = el('div', 'zh-entries-hd'); hd.appendChild(el('span', null, 'History')); hd.appendChild(el('b', null, String(items.length))); box.appendChild(hd);
+    var list = el('div', 'zh-list');
+    if (!items.length) list.appendChild(el('div', 'zh-empty', 'No history.'));
+    items.forEach(function (r) {
+      var row = el('div', 'zh-row');
+      row.appendChild(el('span', 'zh-time', fmtDate(r.lastVisitTime)));
+      var host = hostOf(r.url);
+      var chip = el('span', 'zh-chip', (host[0] || '?').toUpperCase()); chip.style.background = chipColor(host); row.appendChild(chip);
+      row.appendChild(el('span', 'zh-title', r.title || r.url));
+      if ((r.visitCount || 1) > 1) row.appendChild(el('span', 'zh-count', String(r.visitCount)));
+      row.title = r.url;
+      row.addEventListener('click', function () { chrome.tabs.create({ url: r.url }); });
+      list.appendChild(row);
+    });
+    box.appendChild(list);
+    return box;
   }
 
   function buildCalendar() {
@@ -290,31 +327,40 @@
     hideTip();
     body.innerHTML = '';
     body.appendChild(buildBar());
+    if (scope === 'list') { body.appendChild(buildListView()); return; }   // full-height flat list
     var wrap = el('div', 'zh-wrap');
-    if (scope !== 'list') wrap.appendChild(buildCalendar());
-    else { var flat = buildEntries(); flat.style.maxHeight = '72vh'; wrap.appendChild(flat); }
-    if (scope !== 'list') wrap.appendChild(buildEntries());
+    wrap.appendChild(buildCalendar());
+    wrap.appendChild(buildEntries());
     wrap.appendChild(buildRail());
     body.appendChild(wrap);
   }
 
-  function reload() {
-    byDay = {}; monthVisits = [];
-    body.innerHTML = ''; body.appendChild(buildBar());
-    var loading = el('div', 'zh-empty', 'Loading history…'); body.appendChild(loading);
-    loadMonth(function (visits) {
-      monthVisits = visits; byDay = bucketByDay(visits);
-      // Default the selection to the newest day in the month that has activity.
-      if (!byDay[dayKey(selected)]) {
-        var keys = Object.keys(byDay);
-        if (keys.length && (selected.getMonth() !== view.getMonth())) {
-          var newest = visits[0]; if (newest) { selected = new Date(newest.time); selected.setHours(0, 0, 0, 0); }
+  // Load the data the active scope needs (list = cheap all-time; calendar =
+  // month getVisits), cached so toggling views doesn't re-fetch. Then render.
+  function ensureData(cb) {
+    if (scope === 'list') {
+      if (listLoaded) { cb(); return; }
+      loadAllItems(function (items) { allItems = items; listLoaded = true; cb(); });
+    } else {
+      if (monthLoaded) { cb(); return; }
+      loadMonth(function (visits) {
+        monthVisits = visits; byDay = bucketByDay(visits); monthLoaded = true;
+        // Default the selection to the newest day in the month that has activity.
+        if (!byDay[dayKey(selected)]) {
+          var newest = visits[0]; if (newest && selected.getMonth() !== view.getMonth()) { selected = new Date(newest.time); selected.setHours(0, 0, 0, 0); }
         }
-      }
-      render();
-    });
+        cb();
+      });
+    }
   }
+  function refresh() {
+    hideTip();
+    body.innerHTML = ''; body.appendChild(buildBar());
+    body.appendChild(el('div', 'zh-empty', 'Loading history…'));
+    ensureData(render);
+  }
+  function reloadMonth() { monthLoaded = false; refresh(); }
 
-  reload();
-  if (chrome.history.onVisitRemoved) chrome.history.onVisitRemoved.addListener(reload);
+  refresh();
+  if (chrome.history.onVisitRemoved) chrome.history.onVisitRemoved.addListener(function () { listLoaded = false; monthLoaded = false; refresh(); });
 })();

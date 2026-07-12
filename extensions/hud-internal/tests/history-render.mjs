@@ -37,12 +37,13 @@ globalThis.setTimeout = (fn) => { try { fn(); } catch (e) {} return 0; };
 
 // Synchronous chrome.history: two URLs, each with a couple of visits this month.
 const now = Date.now();
+let getVisitsCalled = false;
 globalThis.chrome = {
   runtime: { lastError: null },
   tabs: { create() {} },
   history: {
-    search(_q, cb) { cb([{ url: 'https://github.com/x', title: 'X' }, { url: 'https://news.ycombinator.com/', title: 'HN' }]); },
-    getVisits(q, cb) { cb([{ visitTime: now - 3600e3, transition: 'typed' }, { visitTime: now - 1800e3, transition: 'link' }]); },
+    search(_q, cb) { cb([{ url: 'https://github.com/x', title: 'X', lastVisitTime: now, visitCount: 3 }, { url: 'https://news.ycombinator.com/', title: 'HN', lastVisitTime: now - 1e3, visitCount: 1 }]); },
+    getVisits(q, cb) { getVisitsCalled = true; cb([{ visitTime: now - 3600e3, transition: 'typed' }, { visitTime: now - 1800e3, transition: 'link' }]); },
     onVisitRemoved: { addListener() {} },
   },
 };
@@ -59,8 +60,11 @@ globalThis.window = win;
 const src = fs.readFileSync(new URL('../pages/history.js', import.meta.url), 'utf8');
 assert.doesNotThrow(() => { new Function('window', src)(win); }, 'history page threw during mount/render');
 
-// After a synchronous load the body should carry the toolbar + the calendar wrap.
-assert.ok(body.children.length >= 2, 'render produced a toolbar + content wrap');
+// Default view (Cmd+Y) must be the full-height, all-time LIST — a regression guard.
+assert.ok(body.children.length >= 2, 'render produced a toolbar + content');
+const hasList = body.children.some((c) => (c.className || '').includes('zh-listfull'));
+assert.ok(hasList, 'default view is the full-height list (zh-listfull)');
+assert.equal(getVisitsCalled, false, 'list view uses the cheap all-time search, not getVisits');
 assert.ok(win.ZBHistory, 'helpers still exposed');
 
 console.log('history render smoke: passed');

@@ -155,9 +155,10 @@ bar** (`zfind`), a **powerline status bar** (`ZGui.powerline`, fed by
 `zpowerline.js` from the native host's `zb_sys` system stats + the tmux
 window/pane segment), and **HUD reimplementations**
 of `chrome://{extensions,settings,history,bookmarks,downloads,version}` — the
-**History** page is a Vivaldi-style calendar + browsing-activity dashboard (month
-calendar with per-day activity, a per-day Entries list, and an analytics rail: a
-Browsing Activity area chart, a Link Transition donut, and Top Domains) — plus
+**History** page defaults to a full-height, all-time list (Cmd+Y) and adds a
+Vivaldi-style calendar dashboard (Month/Week/Day: a month calendar with per-day
+activity, a per-day Entries list, and an analytics rail — a Browsing Activity area
+chart, a Link Transition donut, and Top Domains) — plus
 Keyboard, Commands, Sessions, a **Hooks** page, CI, a **Host** console, a
 **Terminal**, an **App Store**, and a live **Audio** page — 15 in all. Every shortcut, and the tmux
 prefix itself, is remappable on the Keyboard page.
