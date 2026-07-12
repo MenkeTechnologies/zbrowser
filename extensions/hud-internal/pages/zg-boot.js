@@ -434,7 +434,13 @@
       ].concat(SCHEMES.map(function (s) {
         return { icon: '◈', label: 'Scheme: ' + s[1], hint: 'theme', run: function () { try { if (ZGui.colorscheme && ZGui.colorscheme.apply) ZGui.colorscheme.apply(s[0]); } catch (e) {} } };
       }));
-      var pageItems = hudCmds.concat(paletteNav()).concat(opts.palette || []);
+      // zpwrchrome's tool pages — from the SHARED palette-cmds.js, so this HUD-page
+      // palette lists the exact same zpwrchrome rows as the web-page (zpalette),
+      // New Tab and zpwrchrome palettes. This is an extension page → open directly.
+      var zpwrItems = (window.ZWIRE_PALETTE_CMDS && window.ZWIRE_PALETTE_CMDS.makeZpwrItems)
+        ? window.ZWIRE_PALETTE_CMDS.makeZpwrItems(function (url) { try { chrome.tabs.create({ url: url }); } catch (e) {} })
+        : [];
+      var pageItems = hudCmds.concat(paletteNav()).concat(zpwrItems).concat(opts.palette || []);
       var openPal = function () {
         // open synchronously with nav commands (nav always works); append tabs after.
         try { ZGui.palette.clear(); ZGui.palette.register(pageItems); ZGui.palette.open(); } catch (e) {}
