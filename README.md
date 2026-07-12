@@ -244,6 +244,14 @@ feeds the status bar, and is the filesystem bridge for the audio engine (the pag
 writes the EQ spec and reads the meter frames over its persistent port; the
 sandboxed audio service can't touch those files itself — see patches 0022–0024).
 
+**`zpwrchrome-host` — the second native agent (`extensions/zpwrchrome/zpwrchrome-host`,
+submodule).** The BP-protocol host behind zpwrchrome's segmented downloader (`dl.*`),
+otp, search and `run.spawn`. The installer builds it, copies it into the bundle next
+to `zwire-host`, and the launcher registers `com.menketechnologies.zpwrchrome.json`
+into zwire's profile pointing at the bundled binary — rewritten on every launch, so a
+separately installed (e.g. package-managed) manifest can never leave zwire's downloads
+without a host and silently hand them back to the browser's built-in downloader.
+
 ## `[0x02] ARCHITECTURE`
 
 | Layer | What it is |

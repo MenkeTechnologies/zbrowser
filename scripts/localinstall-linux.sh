@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # localinstall-linux.sh — Linux self-contained install of zwire, mirroring the
 # macOS .app localinstall. Assembles everything the browser needs under
-#   ~/.local/opt/zwire/   browser + newtab/zpwrchrome/hud-internal + zwire-host + stryke
+#   ~/.local/opt/zwire/   browser + newtab/zpwrchrome/hud-internal + zwire-host
+#                         + zpwrchrome-host (downloads · otp · search) + stryke
 # plus a `zwire` launcher on PATH and a .desktop entry (app menu + icon). No
 # root required (user install under ~/.local). Delete the repo afterward and the
 # install still runs — the native host is a self-contained cross-platform Rust
@@ -51,6 +52,15 @@ command -v cargo >/dev/null || { cyber_fail "cargo not found — install Rust (h
   || { cyber_fail "native host build failed (cargo build --release)"; exit 1; }
 HOST_BIN="$ROOT/extensions/hud-internal/native/zwire-host/target/release/zwire-host"
 cyber_ok "host // zwire-host $(du -h "$HOST_BIN" | awk '{print $1}') (self-contained binary, no python)"
+
+# zpwrchrome's own native host (BP protocol) — backs `dl.*` segmented downloads,
+# otp, search, run.spawn. Bundled so downloads never depend on a system-installed
+# host manifest (a package upgrade that moves the binary silently drops every
+# download back to the browser's built-in downloader).
+( cd extensions/zpwrchrome/zpwrchrome-host && cargo build --release ) >/dev/null 2>&1 \
+  || { cyber_fail "zpwrchrome host build failed (cargo build --release)"; exit 1; }
+ZPWR_HOST_BIN="$ROOT/extensions/zpwrchrome/zpwrchrome-host/target/release/zpwrchrome-host"
+cyber_ok "host // zpwrchrome-host $(du -h "$ZPWR_HOST_BIN" | awk '{print $1}') (downloads · otp · search)"
 echo
 
 cyber_section "BUILD SELF-CONTAINED INSTALL"
@@ -72,6 +82,7 @@ done
 
 # 3) the native host — one self-contained Rust binary
 cp "$HOST_BIN" "$DEST/native/zwire-host"; chmod +x "$DEST/native/zwire-host"
+cp "$ZPWR_HOST_BIN" "$DEST/native/zpwrchrome-host"; chmod +x "$DEST/native/zpwrchrome-host"
 cyber_ok "native // zwire-host"
 
 # 3b) stryke sidecar for the Hooks feature (runner + `stryke --lsp`), bundled
@@ -110,6 +121,19 @@ for d in "$PROFILE/NativeMessagingHosts" "$PROFILE/Default/NativeMessagingHosts"
     "chrome-extension://__HUD_ID__/",
     "chrome-extension://__ZPWR_ID__/",
     "chrome-extension://__NEWTAB_ID__/"
+  ]
+}
+JSON
+  # zpwrchrome's BP host, pointed at the BUNDLED binary. Rewritten on every
+  # launch so a system-installed manifest can never leave downloads hostless.
+  cat > "$d/com.menketechnologies.zpwrchrome.json" <<JSON
+{
+  "name": "com.menketechnologies.zpwrchrome",
+  "description": "zpwrchrome native host (BP protocol)",
+  "path": "$HERE/native/zpwrchrome-host",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__ZPWR_ID__/"
   ]
 }
 JSON

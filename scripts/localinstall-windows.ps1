@@ -7,7 +7,8 @@
   Assembles everything the browser needs under %LOCALAPPDATA%\zwire :
     browser\   the Chromium Win_x64 snapshot (chrome.exe + resources)
     ext\       newtab + zpwrchrome + hud-internal extensions
-    native\    zwire-host.exe (cross-platform Rust binary) + stryke.exe (Hooks sidecar) + its manifest
+    native\    zwire-host.exe (cross-platform Rust binary) + zpwrchrome-host.exe
+               (downloads · otp · search) + stryke.exe (Hooks sidecar) + their manifests
   then wires the native-messaging host via the REGISTRY (Windows does not read
   host manifests from the profile dir like macOS/Linux do), drops a zwire.cmd
   launcher, and creates a Start Menu shortcut with the zwire icon.
@@ -75,6 +76,18 @@ $HostBin = Join-Path $HostDir "target\release\zwire-host.exe"
 if (-not (Test-Path $HostBin)) { throw "native host build produced no zwire-host.exe" }
 Say "host // zwire-host.exe"
 
+# zpwrchrome's own native host (BP protocol) — backs dl.* segmented downloads,
+# otp, search, run.spawn. Bundled so downloads never depend on a separately
+# installed host whose manifest can go stale and silently hand every download
+# back to the browser's built-in downloader.
+$ZpwrHostDir = Join-Path $Root "extensions\zpwrchrome\zpwrchrome-host"
+Say "building zpwrchrome-host (release) ..."
+Push-Location $ZpwrHostDir
+try { cargo build --release | Out-Null } finally { Pop-Location }
+$ZpwrHostBin = Join-Path $ZpwrHostDir "target\release\zpwrchrome-host.exe"
+if (-not (Test-Path $ZpwrHostBin)) { throw "zpwrchrome host build produced no zpwrchrome-host.exe" }
+Say "host // zpwrchrome-host.exe"
+
 # --- 3. assemble the self-contained install ----------------------------------
 if (Test-Path $Dest) { Remove-Item -Recurse -Force $Dest }
 New-Item -ItemType Directory -Force -Path (Join-Path $Dest "browser"),(Join-Path $Dest "ext"),(Join-Path $Dest "native") | Out-Null
@@ -95,6 +108,9 @@ foreach ($pair in @(@("newtab","newtab"), @("extensions\zpwrchrome","zpwrchrome"
 
 Copy-Item -Force $HostBin (Join-Path $Dest "native\zwire-host.exe")
 Say "native // zwire-host.exe"
+
+Copy-Item -Force $ZpwrHostBin (Join-Path $Dest "native\zpwrchrome-host.exe")
+Say "native // zpwrchrome-host.exe"
 
 # stryke sidecar for the Hooks feature (runner + `stryke --lsp`), bundled next to
 # zwire-host.exe so resolve_stryke() finds it as a sibling. Skipped with a warning
@@ -135,6 +151,26 @@ foreach ($hive in @("HKCU:\Software\Chromium\NativeMessagingHosts\com.zwire.hud"
   Set-ItemProperty -Path $hive -Name "(default)" -Value $manifestPath
 }
 Say "native host // registered (HKCU)"
+
+# Same registration for zpwrchrome's BP host, pointed at the bundled exe. The
+# HKCU value is overwritten on every install, so a previously registered
+# (e.g. package-managed) manifest can never win and strand downloads.
+$zpwrManifestPath = Join-Path $Dest "native\com.menketechnologies.zpwrchrome.json"
+$zpwrManifest = [ordered]@{
+  name            = "com.menketechnologies.zpwrchrome"
+  description     = "zpwrchrome native host (BP protocol)"
+  path            = (Join-Path $Dest "native\zpwrchrome-host.exe")
+  type            = "stdio"
+  allowed_origins = @("chrome-extension://$ZPWR_ID/")
+}
+($zpwrManifest | ConvertTo-Json -Depth 5) | Set-Content -Encoding UTF8 -Path $zpwrManifestPath
+
+foreach ($hive in @("HKCU:\Software\Chromium\NativeMessagingHosts\com.menketechnologies.zpwrchrome",
+                    "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.menketechnologies.zpwrchrome")) {
+  New-Item -Path $hive -Force | Out-Null
+  Set-ItemProperty -Path $hive -Name "(default)" -Value $zpwrManifestPath
+}
+Say "zpwrchrome host // registered (HKCU)"
 
 # --- 5. launcher (.cmd): writes nothing, just execs the bundled browser -------
 $launcher = Join-Path $Dest "zwire.cmd"

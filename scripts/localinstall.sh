@@ -6,6 +6,7 @@
 #   Contents/Resources/browser/   the Chromium base bundle (the ~325MB browser)
 #   Contents/Resources/ext/       newtab · zpwrchrome · hud-internal extensions
 #   Contents/Resources/native/    zwire-host (Rust binary: scheme · sysinfo · PTY)
+#                                 zpwrchrome-host (Rust binary: downloads · otp · search)
 #                                  + stryke (Hooks sidecar: runner + --lsp)
 #   Contents/MacOS/zwire          a bundle-relative launcher
 # So you can delete this repo (and the base snapshot) and the app still runs —
@@ -86,6 +87,15 @@ command -v cargo >/dev/null || { cyber_fail "cargo not found — install Rust (h
   || { cyber_fail "native host build failed (cargo build --release)"; exit 1; }
 HOST_BIN="$ROOT/extensions/hud-internal/native/zwire-host/target/release/zwire-host"
 cyber_ok "host // zwire-host $(du -h "$HOST_BIN" | awk '{print $1}') (self-contained binary, no python)"
+
+# zpwrchrome's own native host (BP protocol) — backs `dl.*` segmented downloads,
+# otp, search, run.spawn. Bundled rather than taken from Homebrew: the brew keg's
+# manifest hardcodes a versioned Cellar path that `brew upgrade` deletes, which
+# silently drops every download back to the browser's built-in downloader.
+( cd extensions/zpwrchrome/zpwrchrome-host && cargo build --release ) >/dev/null 2>&1 \
+  || { cyber_fail "zpwrchrome host build failed (cargo build --release)"; exit 1; }
+ZPWR_HOST_BIN="$ROOT/extensions/zpwrchrome/zpwrchrome-host/target/release/zpwrchrome-host"
+cyber_ok "host // zpwrchrome-host $(du -h "$ZPWR_HOST_BIN" | awk '{print $1}') (downloads · otp · search)"
 echo
 
 cyber_section "BUILD SELF-CONTAINED .app"
@@ -168,10 +178,13 @@ if [ -f "$MANIFEST_JSON" ]; then
   cyber_ok "version // stamped extension manifest → v$VERSION"
 fi
 
-# 3) the native host — a single self-contained Rust binary (no python/psutil)
+# 3) the native hosts — self-contained Rust binaries (no python/psutil)
 cp "$HOST_BIN" "$RES/native/zwire-host"
 chmod +x "$RES/native/zwire-host"
 cyber_ok "native // zwire-host (rust binary)"
+cp "$ZPWR_HOST_BIN" "$RES/native/zpwrchrome-host"
+chmod +x "$RES/native/zpwrchrome-host"
+cyber_ok "native // zpwrchrome-host (rust binary)"
 
 # 3b) the stryke interpreter — sidecar for the Hooks feature (the script runner
 #     + the `stryke --lsp` language server). Bundled next to zwire-host so the
@@ -262,6 +275,22 @@ read -r -d '' HOSTJSON <<JSON || true
 JSON
 printf '%s\n' "$HOSTJSON" > "$PROFILE/NativeMessagingHosts/com.zwire.hud.json"
 printf '%s\n' "$HOSTJSON" > "$PROFILE/Default/NativeMessagingHosts/com.zwire.hud.json"
+# zpwrchrome's BP host, pointed at the BUNDLED binary. Rewritten on every launch
+# so a Homebrew-written manifest (which pins a versioned Cellar path that
+# `brew upgrade` deletes) can never leave zwire's downloads without a host.
+read -r -d '' ZPWRHOSTJSON <<JSON || true
+{
+  "name": "com.menketechnologies.zpwrchrome",
+  "description": "zpwrchrome native host (BP protocol)",
+  "path": "$RES/native/zpwrchrome-host",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://hpppdchpnphmiijdeanibpcadgknmaja/"
+  ]
+}
+JSON
+printf '%s\n' "$ZPWRHOSTJSON" > "$PROFILE/NativeMessagingHosts/com.menketechnologies.zpwrchrome.json"
+printf '%s\n' "$ZPWRHOSTJSON" > "$PROFILE/Default/NativeMessagingHosts/com.menketechnologies.zpwrchrome.json"
 BROWSER_APP="$(ls -d "$RES/browser/"*.app | head -1)"
 EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$BROWSER_APP/Contents/Info.plist")"
 # Per-user extension copy. Chromium writes each unpacked extension's compiled
