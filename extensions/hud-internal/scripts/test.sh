@@ -51,6 +51,16 @@ fi
 command rm -f /tmp/zwire-hud-compute.$$
 echo
 
+cyber_section "TAB QUERY (boolean tabs: language + bulk-op provider)"
+if node tests/tabquery.mjs 2>/tmp/zwire-hud-tabq.$$; then
+  cyber_ok "tab query nominal"
+else
+  FAIL=1; cyber_fail "tab query compromised"
+  command sed 's/^/    /' /tmp/zwire-hud-tabq.$$ | head -30
+fi
+command rm -f /tmp/zwire-hud-tabq.$$
+echo
+
 cyber_section "HISTORY DASHBOARD (calendar / analytics aggregation + render)"
 if node tests/history.mjs 2>/tmp/zwire-hud-history.$$ && node tests/history-render.mjs 2>>/tmp/zwire-hud-history.$$; then
   cyber_ok "history dashboard nominal"

@@ -187,8 +187,12 @@ compute layer** (ported from zgo-core): type a sum (`2^10`, `sqrt(2)+1`), a unit
 conversion (`10 km to miles`, `72 f in c`, `1 gb to mb`), a live currency
 conversion (`100 usd to eur`, rates fetched + cached by the host), a percentage
 (`20% of 150`, `150 + 20%`, `10 to 12`), or an `@`-prefixed stryke expression
-(`@ 1:10 |> sum`) and the answer pins to the top row, copyable with ⏎ —
-**vim-style
+(`@ 1:10 |> sum`) and the answer pins to the top row, copyable with ⏎ — a
+**tab-query language** (`tabs:` — a boolean query over every open tab: bare words
+match title+url, field predicates (`host:`/`title:`/`url:`/`older:`/`newer:`) and
+flags (`dup`/`audible`/`discarded`/`pinned`/`muted`/`active`/`loading`) refine,
+`AND`/`OR`/`NOT` compose, then one row bulk-**closes**, **reloads**, or focuses the
+matches — a capability no other browser's command bar has) — **vim-style
 motions** (`zkeys`/`zvim` — jump / scroll / tabs / launch categories), a **find
 bar** (`zfind`), a **powerline status bar** (`ZGui.powerline`, fed by
 `zpowerline.js` from the native host's `zb_sys` system stats + the tmux
@@ -311,8 +315,9 @@ palette; a HUD page gets the zg-boot palette) — that is why it looks like thre
 but is four.
 
 - **Single source of truth:** `palette-cmds.js` (`ZWIRE_PALETTE_CMDS`) owns the
-  item set + ranking (search, custom commands, inline compute, and the
-  zpwrchrome page list via `makeZpwrItems`). Backend-agnostic; **vendored
+  item set + ranking (search, custom commands, inline compute, the `tabs:`
+  boolean tab-query provider, and the zpwrchrome page list via `makeZpwrItems`).
+  Backend-agnostic; **vendored
   verbatim** into `hud-internal/` (canonical — edit this), `newtab/`, and
   `zpwrchrome/lib/`. Each surface must actually load it or its zpwrchrome rows
   silently vanish (HUD pages load it via `<script src="../palette-cmds.js">`).

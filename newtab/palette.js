@@ -150,14 +150,26 @@
       });
     } catch (e) { cb([]); }
   }
+  // Live tab list, refreshed on each open — the tab-query provider (below) reads it
+  // synchronously. Filled by tabItems' chrome.tabs.query, which then re-dispatches
+  // the palette input so the provider re-runs with the fresh set.
+  var tabsCache = [];
   function tabItems(cb) {
     chrome.tabs.query({}, function (tabs) {
-      cb((tabs || []).map(function (t) {
+      tabsCache = tabs || [];
+      cb(tabsCache.map(function (t) {
         return { icon: '▣', label: 'Tab: ' + (t.title || t.url || '(tab)'), detail: t.url,
           run: function () { chrome.tabs.update(t.id, { active: true }); if (t.windowId != null) chrome.windows.update(t.windowId, { focused: true }); } };
       }));
     });
   }
+  // Backend adapters for the `tabs:` boolean-query provider (ZWIRE_PALETTE_CMDS):
+  // the New Tab page has the tabs permission, so it drives chrome.tabs directly.
+  function focusTab(t) { try { chrome.tabs.update(t.id, { active: true }, function () { void chrome.runtime.lastError; }); if (t.windowId != null) chrome.windows.update(t.windowId, { focused: true }); } catch (e) {} }
+  function tabIds(ts) { return (ts || []).map(function (t) { return t.id; }).filter(function (id) { return id != null; }); }
+  function closeTabs(ts) { try { var ids = tabIds(ts); if (ids.length) chrome.tabs.remove(ids, function () { void chrome.runtime.lastError; }); } catch (e) {} }
+  function reloadTabs(ts) { try { tabIds(ts).forEach(function (id) { chrome.tabs.reload(id, function () { void chrome.runtime.lastError; }); }); } catch (e) {} }
+  var TABQCTX = { getTabs: function () { return tabsCache; }, focus: focusTab, close: closeTabs, reload: reloadTabs };
 
   /* ---- shared custom commands + keyword web-search (ZWIRE_PALETTE_CMDS) --------
    * SAME source of truth as the HUD palette (extensions/hud-internal), so the two
@@ -304,6 +316,7 @@
   var CMDCTX = { runCustom: runCustom, typeLabel: typeLabel, isDefaultCmd: isDefaultCmd };
   var searchProvider = PC.makeSearchProvider ? PC.makeSearchProvider(goCurrent) : function () { return []; };
   var customProvider = PC.makeCustomProvider ? PC.makeCustomProvider(function () { return customCache; }, CMDCTX) : function () { return []; };
+  var tabQueryProvider = PC.makeTabQueryProvider ? PC.makeTabQueryProvider(TABQCTX) : function () { return []; };
   function customItems(list) { return PC.makeCustomItems ? PC.makeCustomItems(list, CMDCTX) : []; }
   // Inline compute (ported from zgo-core): calc / unit + currency conversion /
   // percentage + `@ <code>` stryke. stryke runs through the SAME cross-ext host
@@ -352,7 +365,7 @@
     try {
       ZGui.palette.clear();
       ZGui.palette.register(items());
-      if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); }
+      if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); ZGui.palette.registerProvider(tabQueryProvider); }
       ZGui.palette.open();
     } catch (e) {}
     try { if (PC.primeRates) PC.primeRates(getRates, refreshPalette); } catch (e) {}   // load FX rates for inline currency

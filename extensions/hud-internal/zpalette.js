@@ -444,6 +444,19 @@
   }
   var COMPUTECTX = { copy: clip, toast: function (t) { hostToast(t); }, evalStryke: evalStryke, refresh: refreshPalette };
   var computeProvider = PC.makeComputeProvider ? PC.makeComputeProvider(COMPUTECTX) : function () { return []; };
+  // `tabs:` boolean-query provider. A content script can't call chrome.tabs, so the
+  // tab list comes from the worker-published zb_tabs snapshot and the bulk ops route
+  // through the worker action bus (cmd) — focus = activate, close/reload = the
+  // closeTabs/reloadTabs verbs (background.js). Same engine as the New Tab page.
+  var hudTabs = [];
+  function hudTabIds(ts) { return (ts || []).map(function (t) { return t.id; }).filter(function (id) { return id != null; }); }
+  var TABQCTX = {
+    getTabs: function () { return hudTabs; },
+    focus: function (t) { cmd({ a: 'activate', tabId: t.id }); },
+    close: function (ts) { var ids = hudTabIds(ts); if (ids.length) cmd({ a: 'closeTabs', ids: ids }); },
+    reload: function (ts) { var ids = hudTabIds(ts); if (ids.length) cmd({ a: 'reloadTabs', ids: ids }); }
+  };
+  var tabQueryProvider = PC.makeTabQueryProvider ? PC.makeTabQueryProvider(TABQCTX) : function () { return []; };
   function getRates(cb) { try { chrome.runtime.sendMessage({ type: 'zbGetRates' }, function (r) { void chrome.runtime.lastError; cb(r); }); } catch (e) { cb(null); } }
   function refreshPalette() { try { var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {} }
 
@@ -518,7 +531,7 @@
     schemeVars(injectStyle);
     // Open SYNCHRONOUSLY with the static commands so it never depends on an
     // async read — nav always works. Tabs (storage bus) are appended after.
-    try { ZGui.palette.clear(); ZGui.palette.register(items()); if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); } ZGui.palette.open(); } catch (ex) {}
+    try { ZGui.palette.clear(); ZGui.palette.register(items()); if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); ZGui.palette.registerProvider(tabQueryProvider); } ZGui.palette.open(); } catch (ex) {}
     try { if (PC.primeRates) PC.primeRates(getRates, refreshPalette); } catch (e) {}   // load FX rates for inline currency
     try {
       chrome.storage.local.get(['zb_tabs', 'zb_exts', 'zb_frecent', 'zb_shortcuts', 'zb_custom_cmds'], function (o) {
@@ -537,6 +550,7 @@
         try { ZGui.palette.register(frecentItems(o && o.zb_frecent)); } catch (e) {}
         try { shortcutsCache = (o && o.zb_shortcuts) || []; } catch (e) {}
         try { ZGui.palette.register(extItems(o && o.zb_exts)); } catch (e) {}
+        try { hudTabs = (o && o.zb_tabs) || []; } catch (e) {}
         try { ZGui.palette.register(tabItems(o && o.zb_tabs)); } catch (e) {}
         try { var inp = document.querySelector('.palette-input'); if (inp) inp.dispatchEvent(new Event('input')); } catch (e) {}
       });

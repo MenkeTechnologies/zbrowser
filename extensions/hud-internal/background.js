@@ -380,7 +380,11 @@ function updateTabs() {
     chrome.tabs.query({}, function (tabs) {
       void chrome.runtime.lastError;
       chrome.storage.local.set({ zb_tabs: (tabs || []).map(function (t) {
-        return { id: t.id, title: t.title, url: t.url, windowId: t.windowId, active: t.active }; }) });
+        // Carry the fields the `tabs:` boolean-query provider predicates on
+        // (audible/discarded/pinned/muted/status/lastAccessed) — tabItems only reads
+        // id/title/url, so this is additive.
+        return { id: t.id, title: t.title, url: t.url, windowId: t.windowId, active: t.active,
+          pinned: t.pinned, audible: t.audible, discarded: t.discarded, mutedInfo: t.mutedInfo, status: t.status, lastAccessed: t.lastAccessed }; }) });
     });
   } catch (e) {}
 }
@@ -788,6 +792,10 @@ function execZbCmd(c) {
     } else if (c.a === 'closeOthers') {
       active(function (t) { if (!t) return; chrome.tabs.query({ windowId: t.windowId }, function (all) { (all || []).forEach(function (x) { if (x.id !== t.id && !x.pinned) chrome.tabs.remove(x.id); }); }); });
     } else if (c.a === 'closeTab') { active(function (t) { if (t) chrome.tabs.remove(t.id); });
+    } else if (c.a === 'closeTabs' && Array.isArray(c.ids)) {   // bulk close by id — the `tabs:` query's "Close N tabs" row
+      c.ids.forEach(function (id) { if (id != null) chrome.tabs.remove(id, function () { void chrome.runtime.lastError; }); });
+    } else if (c.a === 'reloadTabs' && Array.isArray(c.ids)) {  // bulk reload by id — the `tabs:` query's "Reload N tabs" row
+      c.ids.forEach(function (id) { if (id != null) chrome.tabs.reload(id, { bypassCache: false }, function () { void chrome.runtime.lastError; }); });
     } else if (c.a === 'nextTab' || c.a === 'prevTab') {
       chrome.tabs.query({ lastFocusedWindow: true }, function (all) {
         all = all || []; active(function (t) {

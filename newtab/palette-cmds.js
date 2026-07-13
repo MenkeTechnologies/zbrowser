@@ -478,8 +478,126 @@
     };
   }
 
+  /* ==== tab-query engine ====================================================
+   * A `tabs:` / `tab:` prefix turns the palette input into a BOOLEAN QUERY over
+   * every open tab, with one-key BULK operations on the matches (close / reload /
+   * focus). Bare words substring-match title+url; field predicates
+   * (host:/url:/title:/older:/newer:) and flags (dup/audible/muted/discarded/
+   * pinned/active/loading/http/https) refine it; AND (implicit) / OR / NOT (or a
+   * leading -/! ) compose them. The matcher is PURE — the consumer injects the live
+   * tab list and the focus/close/reload adapters (direct chrome.tabs on the New Tab
+   * page; the worker action bus on a web page). Backend-agnostic: no chrome.* here.
+   * No browser's command bar exposes a boolean tab-query language driving bulk tab
+   * mutations — this is the first. */
+  function tabHost(u) { try { return new URL(u).host.toLowerCase(); } catch (e) { return ''; } }
+  function normUrl(u) { return String(u || '').replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase(); }
+  var TAB_FLAGS = { dup: 1, audible: 1, playing: 1, muted: 1, discarded: 1, asleep: 1, pinned: 1, active: 1, loading: 1, http: 1, https: 1 };
+  function parsePred(t) {
+    var i = t.indexOf(':');
+    if (i > 0) return { field: t.slice(0, i).toLowerCase(), val: t.slice(i + 1).toLowerCase() };
+    var low = t.toLowerCase();
+    if (TAB_FLAGS[low]) return { flag: low };
+    return { text: low };
+  }
+  // parseTabQuery(q) -> { body, clauses } when q carries the tab sigil, else null.
+  // clauses is an OR-list of AND-lists of { neg, pred }.
+  function parseTabQuery(q) {
+    var m = /^tabs?:\s*([\s\S]*)$/i.exec(String(q || ''));
+    if (!m) return null;
+    var body = m[1].trim();
+    var toks = body ? body.split(/\s+/) : [];
+    var clauses = [[]], neg = false;
+    toks.forEach(function (tk) {
+      var up = tk.toUpperCase();
+      if (up === 'OR' || tk === '||') { clauses.push([]); neg = false; return; }
+      if (up === 'AND' || tk === '&&') { return; }                 // implicit AND anyway
+      if (up === 'NOT') { neg = true; return; }
+      var t = tk, localNeg = neg; neg = false;
+      while (t && (t.charAt(0) === '-' || t.charAt(0) === '!')) { localNeg = !localNeg; t = t.slice(1); }
+      if (!t) return;
+      clauses[clauses.length - 1].push({ neg: localNeg, pred: parsePred(t) });
+    });
+    return { body: body, clauses: clauses };
+  }
+  // evalPred(pred, tab, ctx) -> bool. ctx = { now, dup } (dup: set of duplicate URLs).
+  function evalPred(p, tab, ctx) {
+    if (p.text != null) return ((tab.title || '') + ' ' + (tab.url || '')).toLowerCase().indexOf(p.text) >= 0;
+    if (p.flag != null) {
+      switch (p.flag) {
+        case 'dup': return !!ctx.dup[normUrl(tab.url)];
+        case 'audible': case 'playing': return !!tab.audible;
+        case 'muted': return !!(tab.mutedInfo && tab.mutedInfo.muted);
+        case 'discarded': case 'asleep': return !!tab.discarded;
+        case 'pinned': return !!tab.pinned;
+        case 'active': return !!tab.active;
+        case 'loading': return tab.status === 'loading';
+        case 'http': return /^http:\/\//i.test(tab.url || '');
+        case 'https': return /^https:\/\//i.test(tab.url || '');
+      }
+      return false;
+    }
+    switch (p.field) {
+      case 'host': case 'by': case 'site': case 'domain': return tabHost(tab.url).indexOf(p.val) >= 0;
+      case 'url': return String(tab.url || '').toLowerCase().indexOf(p.val) >= 0;
+      case 'title': return String(tab.title || '').toLowerCase().indexOf(p.val) >= 0;
+      case 'older': return (ctx.now - (tab.lastAccessed || 0)) / 60000 >= parseFloat(p.val || '0');
+      case 'newer': return (ctx.now - (tab.lastAccessed || 0)) / 60000 < parseFloat(p.val || '0');
+    }
+    return false;                                                   // unknown field matches nothing (a typo can't select all)
+  }
+  function matchTab(tab, ast, ctx) {
+    var clauses = (ast.clauses || []).filter(function (c) { return c.length; });
+    if (!clauses.length) return true;                              // bare `tabs:` = every tab
+    for (var i = 0; i < clauses.length; i++) {
+      var cl = clauses[i], ok = true;
+      for (var j = 0; j < cl.length; j++) {
+        var r = evalPred(cl[j].pred, tab, ctx);
+        if (cl[j].neg) r = !r;
+        if (!r) { ok = false; break; }
+      }
+      if (ok) return true;                                         // any OR-clause satisfied
+    }
+    return false;
+  }
+  // filterTabs(tabs, ast, now) -> matching tabs (precomputes the duplicate-URL set).
+  function filterTabs(tabs, ast, now) {
+    tabs = tabs || [];
+    var seen = {}, dup = {};
+    tabs.forEach(function (t) { var k = normUrl(t.url); if (k) { if (seen[k]) dup[k] = 1; else seen[k] = 1; } });
+    var ctx = { now: now || Date.now(), dup: dup };
+    return tabs.filter(function (t) { return matchTab(t, ast, ctx); });
+  }
+  // makeTabQueryProvider(ctx) -> provider(q). ctx: { getTabs():tab[], focus(tab),
+  // close(tabs[]), reload?(tabs[]), now?():ms }. Emits bulk-op rows (pinned top) +
+  // bounded per-match focus rows.
+  function makeTabQueryProvider(ctx) {
+    ctx = ctx || {};
+    return function tabQueryProvider(q) {
+      var ast = parseTabQuery(q);
+      if (!ast) return [];
+      var tabs = (ctx.getTabs && ctx.getTabs()) || [];
+      var now = (ctx.now && ctx.now()) || Date.now();
+      var matches = filterTabs(tabs, ast, now);
+      var n = matches.length, label = ast.body || 'all tabs', out = [];
+      if (!n) return [{ icon: '▣', label: 'No tabs match', detail: 'tab query · ' + label, top: true, run: function () {} }];
+      out.push({ icon: '⊗', label: 'Close ' + n + ' tab' + (n === 1 ? '' : 's'), detail: 'tab query · ' + label, top: true,
+        run: function () { if (ctx.close) ctx.close(matches.slice()); } });
+      if (ctx.reload) out.push({ icon: '↻', label: 'Reload ' + n + ' tab' + (n === 1 ? '' : 's'), detail: 'tab query · ' + label, top: true,
+        run: function () { ctx.reload(matches.slice()); } });
+      matches.slice(0, 12).forEach(function (t) {
+        out.push({ icon: '▣', label: 'Focus: ' + (t.title || t.url || '(tab)'), detail: t.url, run: function () { if (ctx.focus) ctx.focus(t); } });
+      });
+      return out;
+    };
+  }
+
   root.ZWIRE_PALETTE_CMDS = {
     SEARCH: SEARCH,
+    parseTabQuery: parseTabQuery,
+    matchTab: matchTab,
+    filterTabs: filterTabs,
+    makeTabQueryProvider: makeTabQueryProvider,
+    tabHost: tabHost,
     ZPWR_ID: ZPWR_ID,
     ZPWR_PAGES: ZPWR_PAGES,
     makeZpwrItems: makeZpwrItems,
