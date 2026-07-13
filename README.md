@@ -8,7 +8,7 @@
 
 [![Base](https://img.shields.io/badge/base-chromium%20fork-05d9e8.svg)](#0x02-architecture)
 [![Workspace](https://img.shields.io/badge/HUD-tiling%20workspace-ff2a6d.svg)](#0x01-the-hud-workspace)
-[![Patches](https://img.shields.io/badge/native%20fork-24%20patches-d300c5.svg)](#0x05-full-hud-fork)
+[![Patches](https://img.shields.io/badge/native%20fork-25%20patches-d300c5.svg)](#0x05-full-hud-fork)
 [![Docs](https://img.shields.io/badge/docs-online-05d9e8.svg)](https://menketechnologies.github.io/zwire/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -37,7 +37,7 @@ workspace layered on top:
   with nothing open) plus a live **Audio HUD page** with real post-DSP spectrum
   and meters;
 - **lifecycle hooks** — a **Hooks HUD page** that binds
-  [stryke](https://github.com/MenkeTechnologies/strykelang) scripts to ~50
+  [stryke](https://github.com/MenkeTechnologies/strykelang) scripts to ~160
   browser events (tab / window / navigation / download / bookmark / terminal /
   scheme / audio / ⌘K-command lifecycle, plus an `action` catch-all), with a
   searchable event picker;
@@ -50,13 +50,13 @@ workspace layered on top:
   never touches your system Chrome.
 
 The HUD layer (`extensions/hud-internal`) is ~7,400 lines of extension code
-across 11 subsystems and 15 pages, assembled on the **`zgui-core`** shared GUI
+across 11 subsystems and 21 pages, assembled on the **`zgui-core`** shared GUI
 toolkit (253 `ZGui.*` components, a git submodule loaded straight from
 `lib/zgui-core/webui/`) and bridged to the **`zwire-host`** native agent (a
-single Rust binary, its own submodule). Under it, a **24-patch C++ fork**
+single Rust binary, its own submodule). Under it, a **25-patch C++ fork**
 restyles the *native* chrome the extension layer can't reach.
 
-**zwire is the full fork.** The 24-patch series (`fork/`) compiles a patched
+**zwire is the full fork.** The 25-patch series (`fork/`) compiles a patched
 Chromium so the *native* chrome carries the HUD too — sharp tab shapes, the
 Share Tech Mono UI font, the neon toolbar, the omnibox, the 8 HUD schemes wired
 into the color mixer + DevTools, native Views menus/dialogs bound to the HUD
@@ -257,14 +257,14 @@ without a host and silently hand them back to the browser's built-in downloader.
 | Layer | What it is |
 |---|---|
 | **Base** | The compiled `fork/` build — a patched Chromium (pinned tag `150.0.7871.46`), unbranded release |
-| **HUD workspace** | `extensions/hud-internal` — the tiling overlay (`ztmux-config`/`ztmux-pane` driving `ZGui.tmux`), ⌘K palette (`zpalette`), vim nav + keymap (`zkeys`/`zvim`), find (`zfind`), status bar (`zpowerline` → `ZGui.powerline`), the 8-scheme picker (with light/dark toggle), and 15 HUD pages (incl. the Sessions manager, Keyboard remapper, Host console, App Store + a live Audio page). MV3 content scripts on `chrome://*/*` + `http(s)`; bridges to a native host. Needs `--extensions-on-chrome-urls` |
+| **HUD workspace** | `extensions/hud-internal` — the tiling overlay (`ztmux-config`/`ztmux-pane` driving `ZGui.tmux`), ⌘K palette (`zpalette`), vim nav + keymap (`zkeys`/`zvim`), find (`zfind`), status bar (`zpowerline` → `ZGui.powerline`), the 8-scheme picker (with light/dark toggle), and 21 HUD pages (incl. the Sessions manager, Keyboard remapper, Host console, App Store + a live Audio page). MV3 content scripts on `chrome://*/*` + `http(s)`; bridges to a native host. Needs `--extensions-on-chrome-urls` |
 | **GUI toolkit** | `extensions/hud-internal/lib/zgui-core` — the shared `ZGui` component library (253 `webui/*` modules), a submodule loaded straight from path (never copied). Every HUD page composes `ZGui` components; zwire supplies only the glue |
 | **Native host** | `extensions/hud-internal/native/zwire-host` — a single Rust binary (native-messaging host + Unix-socket daemon: sysmon, fs, exec, PTY, KV, hooks, OS ops), a submodule. Backs the Host console + powerline stats + the audio EQ/meters file bridge |
 | **New tab** | `newtab/` — a `chrome_url_overrides.newtab` extension (in-repo, not a submodule): the full HUD new-tab (Orbitron, CRT scanlines, neon omnibox), fonts vendored locally |
 | **Power-tool** | `extensions/zpwrchrome` — the MV3 power-tool, loaded as a submodule (reuse, not copy) |
 | **Theme** | `theme/` — a colors-only Chrome theme. Present but **not** launcher-loaded — the fork's native color mixer (patch 0002) and the HUD skin own the palette, and a static theme applies last and would override them |
 | **Launcher** | `bin/zwire` — starts the base against `$ZWIRE_STATE/profile` with `newtab` + `zpwrchrome` + `hud-internal` loaded and `--extensions-on-chrome-urls` set (any dir missing a `manifest.json` is skipped, so a missing submodule degrades gracefully) |
-| **Fork** | `fork/` — the 24-patch source build that restyles the native chrome (tab shapes, fonts, borders, omnibox, DevTools schemes, native menus/dialogs) and tunes native behavior (forced zwire new-tab, session restore, framing, browser-wide audio EQ + meters) the extension layer can't reach; this is what zwire ships as |
+| **Fork** | `fork/` — the 25-patch source build that restyles the native chrome (tab shapes, fonts, borders, omnibox, DevTools schemes, native menus/dialogs) and tunes native behavior (forced zwire new-tab, session restore, framing, browser-wide audio EQ + meters) the extension layer can't reach; this is what zwire ships as |
 
 A Chrome theme extension changes **colors only** — it cannot reshape tabs, fonts,
 or toolbar (those are native C++), and it cannot add a tiling overlay or a
@@ -366,7 +366,7 @@ fork/build.sh          ~/zwire-chromium/src  # the long compile
 fork/package.sh        ~/zwire-chromium/src/out/zwire
 ```
 
-All **24** HUD patches are **authored** against the pinned tag (`150.0.7871.46`)
+All **25** HUD patches are **authored** against the pinned tag (`150.0.7871.46`)
 and verified apply-clean. The nine styling/behavior patches: hard trapezoid tabs
 (`tab_style_views.cc`), the cyberpunk palette + the 8 HUD schemes on
 frame/toolbar/tabs/omnibox (`chrome_color_mixer.cc`), the Share Tech Mono /
