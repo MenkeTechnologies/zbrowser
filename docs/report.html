@@ -61,7 +61,7 @@
             <a href="https://github.com/MenkeTechnologies/zwire/tree/main/fork" target="_blank" rel="noopener noreferrer">fork/</a>
           </nav>
           <p style="margin:0.35rem 0 0;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text-dim);letter-spacing:0.03em;opacity:0.8;">
-            Forked Chromium &middot; tiling HUD workspace (~7,400 LOC) &middot; fork series targets tag <code>150.0.7871.46</code> &middot; repo <code>1c34587e80</code> &middot; 24 patches / 58 hunks &middot; 4 extensions &middot; 8-scheme HUD
+            Forked Chromium &middot; tiling HUD workspace (~7,400 LOC) &middot; fork series targets tag <code>150.0.7871.46</code> &middot; repo <code>58f0c7074c</code> &middot; 25 patches / (hunks not re-verified) &middot; 4 extensions &middot; 8-scheme HUD
           </p>
         </div>
         <div class="tutorial-toolbar">
@@ -85,10 +85,10 @@
 
       <!-- ═══════════════ SUMMARY ═══════════════ -->
       <h2 class="tutorial-title"><span class="step-hash">&gt;_</span>SUMMARY</h2>
-      <p class="tutorial-subtitle">zwire is a Chromium/Blink browser forked into a keyboard-driven cyberpunk HUD. The bulk is the <strong>HUD workspace</strong> (<code>extensions/hud-internal</code>, ~7,400 LOC) &mdash; the <code>ztmux</code> tiling overlay (tmux-style panes/windows, each an embedded webview; rebindable prefix; partial synchronize-panes; durable session CRUD), a ⌘K command palette, vim navigation, a find bar, a status bar, the 8-scheme picker, a browser-wide audio EQ + live meters, and 15 HUD pages. Under it, the <strong>source fork</strong> removes the theme-extension ceiling &mdash; a Chrome theme changes colors only, so the native tab shape, UI font, and toolbar can't be reached from an extension &mdash; by compiling a patched Chromium: a 24-patch series authored against tag <code>150.0.7871.46</code> and verified apply-clean. This is what zwire ships as. The counters below are read from the patch files and the tree at commit <code>1c34587e80</code>; each per-patch "approach" is condensed from <code>fork/patches/README.md</code>, whose anchors were verified against the target file at that exact tag. Apply-clean proves the diff context matches the pinned source; it does <strong>not</strong> prove the C++ compiles &mdash; <code>fork/build.sh</code> is that gate.</p>
+      <p class="tutorial-subtitle">zwire is a Chromium/Blink browser forked into a keyboard-driven cyberpunk HUD. The bulk is the <strong>HUD workspace</strong> (<code>extensions/hud-internal</code>, ~7,400 LOC) &mdash; the <code>ztmux</code> tiling overlay (tmux-style panes/windows, each an embedded webview; rebindable prefix; partial synchronize-panes; durable session CRUD), a ⌘K command palette, vim navigation, a find bar, a status bar, the 8-scheme picker, a browser-wide audio EQ + live meters, and 15 HUD pages. Under it, the <strong>source fork</strong> removes the theme-extension ceiling &mdash; a Chrome theme changes colors only, so the native tab shape, UI font, and toolbar can't be reached from an extension &mdash; by compiling a patched Chromium: a 25-patch series authored against tag <code>150.0.7871.46</code> and verified apply-clean. This is what zwire ships as. The counters below are read from the patch files and the tree at commit <code>58f0c7074c</code>; each per-patch "approach" is condensed from <code>fork/patches/README.md</code>, whose anchors were verified against the target file at that exact tag. Apply-clean proves the diff context matches the pinned source; it does <strong>not</strong> prove the C++ compiles &mdash; <code>fork/build.sh</code> is that gate.</p>
 
       <div class="stat-grid">
-        <div class="stat-card"><div class="stat-val">24</div><div class="stat-label">Fork Patches</div></div>
+        <div class="stat-card"><div class="stat-val">25</div><div class="stat-label">Fork Patches</div></div>
         <div class="stat-card"><div class="stat-val accent">58</div><div class="stat-label">Total Hunks</div></div>
         <div class="stat-card"><div class="stat-val">102,275</div><div class="stat-label">Patch Bytes</div></div>
         <div class="stat-card"><div class="stat-val">31</div><div class="stat-label">Chromium Files Touched</div></div>
