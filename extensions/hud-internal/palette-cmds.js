@@ -591,6 +591,134 @@
     };
   }
 
+  /* ==== brace-expansion batch navigation ===================================
+   * A faithful port of zsh/bash BRACE EXPANSION applied to the address layer:
+   * type ONE URL pattern carrying `{a,b}` alternations and/or `{1..10}` /
+   * `{a..e}` sequences (zero-padded, stepped, descending, nested, cartesian) and
+   * the palette expands it into N destinations and opens the whole batch from a
+   * single ⏎. `{01..12}` → 01…12, `{0..20..5}` → 0 5 10 15 20, `{a,b}{1,2}` →
+   * a1 a2 b1 b2, `gh.com/{issues,pulls,wiki}` → three tabs. Pure/offline — the
+   * consumer injects only open(url). No browser's address bar or command palette
+   * expands a brace/sequence pattern into a batch tab-open — this is the first.
+   * The engine (expandBraces) matches zsh semantics: comma takes precedence over
+   * a range, an unbalanced / comma-less / rangeless `{…}` stays literal, and
+   * `\{`/`\}` escape. */
+  function unescapeBraces(s) { return String(s).replace(/\\([{},\\])/g, '$1'); }
+  // splitTopLevel(body, sep) -> parts split on a depth-0 single-char `sep`,
+  // respecting nested `{…}` and `\` escapes (empty parts preserved: `,b` -> ['','b']).
+  function splitTopLevel(body, sep) {
+    var parts = [], depth = 0, cur = '';
+    for (var i = 0; i < body.length; i++) {
+      var c = body.charAt(i);
+      if (c === '\\') { cur += c + (body.charAt(i + 1) || ''); i++; continue; }
+      if (c === '{') { depth++; cur += c; }
+      else if (c === '}') { depth--; cur += c; }
+      else if (c === sep && depth === 0) { parts.push(cur); cur = ''; }
+      else cur += c;
+    }
+    parts.push(cur);
+    return parts;
+  }
+  function hasTopLevelComma(body) { return splitTopLevel(body, ',').length > 1; }
+  // fmtInt(n, pad) -> zero-padded integer string (pad=0 disables). Sign is kept
+  // outside the padding, matching `{-1..1}` / `{01..10}` behaviour.
+  function fmtInt(n, pad) {
+    if (!pad) return String(n);
+    var neg = n < 0, s = String(Math.abs(n));
+    while (s.length < pad) s = '0' + s;
+    return (neg ? '-' : '') + s;
+  }
+  // parseRange(body) -> string[] for `A..B` / `A..B..STEP` (numeric or single
+  // char), else null. Descending when A>B; step is magnitude only (direction is
+  // inferred). Numeric ranges zero-pad to the widest operand when either operand
+  // is written with a leading zero (`{08..10}` -> 08 09 10).
+  function parseRange(body) {
+    var m = /^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/.exec(body);
+    if (m) {
+      var a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      var step = m[3] != null ? Math.abs(parseInt(m[3], 10)) : 1; if (!step) step = 1;
+      var pad = 0;
+      if (/^-?0\d/.test(m[1]) || /^-?0\d/.test(m[2])) pad = Math.max(m[1].replace('-', '').length, m[2].replace('-', '').length);
+      var out = [], i;
+      if (a <= b) { for (i = a; i <= b; i += step) out.push(fmtInt(i, pad)); }
+      else { for (i = a; i >= b; i -= step) out.push(fmtInt(i, pad)); }
+      return out;
+    }
+    // Single-char range. zsh does NOT expand a *stepped* char range (`{a..e..2}`
+    // stays literal — only numeric ranges take a step), so no step group here.
+    var c = /^([A-Za-z])\.\.([A-Za-z])$/.exec(body);
+    if (c) {
+      var ca = c[1].charCodeAt(0), cb = c[2].charCodeAt(0), cout = [], j;
+      if (ca <= cb) { for (j = ca; j <= cb; j++) cout.push(String.fromCharCode(j)); }
+      else { for (j = ca; j >= cb; j--) cout.push(String.fromCharCode(j)); }
+      return cout;
+    }
+    return null;
+  }
+  // firstBraceSegment(str) -> { start, end } of the leftmost balanced `{…}` whose
+  // body is a real expansion (top-level comma OR a valid range), else null. A `{`
+  // that is unbalanced or holds no comma/range is literal and scanning continues.
+  function firstBraceSegment(str) {
+    for (var i = 0; i < str.length; i++) {
+      var ch = str.charAt(i);
+      if (ch === '\\') { i++; continue; }
+      if (ch !== '{') continue;
+      var depth = 0, k, close = -1;
+      for (k = i; k < str.length; k++) {
+        var c = str.charAt(k);
+        if (c === '\\') { k++; continue; }
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { close = k; break; } }
+      }
+      if (close < 0) continue;                                       // unbalanced -> literal `{`
+      var body = str.slice(i + 1, close);
+      if (hasTopLevelComma(body) || parseRange(body) !== null) return { start: i, end: close };
+    }
+    return null;
+  }
+  // expandBraces(str) -> string[] (zsh-faithful). Recursively expands the leftmost
+  // group, cartesian-combines with the expansion of the tail, and unescapes leaves.
+  function expandBraces(str) {
+    str = String(str);
+    var seg = firstBraceSegment(str);
+    if (!seg) return [unescapeBraces(str)];
+    var pre = unescapeBraces(str.slice(0, seg.start));
+    var body = str.slice(seg.start + 1, seg.end);
+    var postExp = expandBraces(str.slice(seg.end + 1));
+    var mids;
+    if (hasTopLevelComma(body)) { mids = []; splitTopLevel(body, ',').forEach(function (p) { mids = mids.concat(expandBraces(p)); }); }
+    else mids = parseRange(body);                                    // guaranteed non-null by firstBraceSegment
+    var out = [];
+    for (var i = 0; i < mids.length; i++) { for (var j = 0; j < postExp.length; j++) out.push(pre + mids[i] + postExp[j]); }
+    return out;
+  }
+  // A token is a batch-nav destination when it carries a scheme or a dotted host.
+  function braceNavigable(t) { return /^https?:\/\//i.test(t) || /^([a-z0-9-]+\.)+[a-z]{2,}(?:[/:?#]|$)/i.test(t); }
+  function braceUrl(t) { return /^https?:\/\//i.test(t) ? t : 'https://' + t; }
+  // makeBraceProvider(ctx) -> provider(q). ctx: { open(url), openMany?(urls) }.
+  // Fires only when the input has a brace group, no whitespace (URLs never do),
+  // expands to >=2 tokens, and EVERY token is a navigable URL — so it can't hijack
+  // prose or a plain `{a,b}` word list. Emits a pinned "Open N tabs" batch row plus
+  // bounded per-URL open rows. openMany defaults to looping open().
+  function makeBraceProvider(ctx) {
+    ctx = ctx || {};
+    var open = ctx.open || function () {};
+    var openMany = ctx.openMany || function (urls) { urls.forEach(function (u) { open(u); }); };
+    return function braceProvider(q) {
+      q = (q || '').trim();
+      if (!q || q.indexOf('{') < 0 || /\s/.test(q)) return [];
+      var toks = expandBraces(q);
+      if (toks.length < 2 || !toks.every(braceNavigable)) return [];
+      var seen = {}, urls = [];
+      toks.forEach(function (t) { var u = braceUrl(t); if (!seen[u]) { seen[u] = 1; urls.push(u); } });
+      if (urls.length < 2) return [];
+      var n = urls.length;
+      var out = [{ icon: '⧉', label: 'Open ' + n + ' tabs', detail: 'brace expand · ' + q, top: true, run: function () { openMany(urls.slice()); } }];
+      urls.slice(0, 12).forEach(function (u) { out.push({ icon: '↗', label: u, detail: 'brace expand', run: function () { open(u); } }); });
+      return out;
+    };
+  }
+
   root.ZWIRE_PALETTE_CMDS = {
     SEARCH: SEARCH,
     parseTabQuery: parseTabQuery,
@@ -617,6 +745,9 @@
     currencyConvert: currencyConvert,
     currencyParse: currencyParse,
     primeRates: primeRates,
-    makeComputeProvider: makeComputeProvider
+    makeComputeProvider: makeComputeProvider,
+    // brace-expansion batch navigation
+    expandBraces: expandBraces,
+    makeBraceProvider: makeBraceProvider
   };
 })(typeof window !== 'undefined' ? window : this);

@@ -196,7 +196,16 @@ conversion (`100 usd to eur`, rates fetched + cached by the host), a percentage
 match title+url, field predicates (`host:`/`title:`/`url:`/`older:`/`newer:`) and
 flags (`dup`/`audible`/`discarded`/`pinned`/`muted`/`active`/`loading`) refine,
 `AND`/`OR`/`NOT` compose, then one row bulk-**closes**, **reloads**, or focuses the
-matches — a capability no other browser's command bar has) — **vim-style
+matches — a capability no other browser's command bar has) — a **brace-expansion
+batch launcher** (`makeBraceProvider` — a zsh-faithful port of shell brace
+expansion applied to the address layer: type ONE URL pattern carrying `{a,b}`
+alternations and/or `{1..10}`/`{a..e}` sequences — zero-padded (`{01..12}`),
+stepped (`{0..20..5}`), descending, nested, and cartesian (`{a,b}{1,2}`) — and it
+expands to N destinations and opens the whole batch from a single ⏎;
+`gh.com/{issues,pulls,wiki}` opens three tabs at once. It fires only when the
+pattern has no whitespace and every expansion is a real URL, so it never hijacks
+prose or a plain word list — no browser's address bar or command palette expands a
+brace/sequence pattern into a batch tab-open) — **vim-style
 motions** (`zkeys`/`zvim` — jump / scroll / tabs / launch categories), a **find
 bar** (`zfind`), a **powerline status bar** (`ZGui.powerline`, fed by
 `zpowerline.js` from the native host's `zb_sys` system stats + the tmux

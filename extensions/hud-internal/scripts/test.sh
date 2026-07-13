@@ -61,6 +61,16 @@ fi
 command rm -f /tmp/zwire-hud-tabq.$$
 echo
 
+cyber_section "BRACE NAV (zsh brace-expansion batch-open provider)"
+if node tests/bracenav.mjs 2>/tmp/zwire-hud-brace.$$; then
+  cyber_ok "brace nav nominal"
+else
+  FAIL=1; cyber_fail "brace nav compromised"
+  command sed 's/^/    /' /tmp/zwire-hud-brace.$$ | head -30
+fi
+command rm -f /tmp/zwire-hud-brace.$$
+echo
+
 cyber_section "HISTORY DASHBOARD (calendar / analytics aggregation + render)"
 if node tests/history.mjs 2>/tmp/zwire-hud-history.$$ && node tests/history-render.mjs 2>>/tmp/zwire-hud-history.$$; then
   cyber_ok "history dashboard nominal"

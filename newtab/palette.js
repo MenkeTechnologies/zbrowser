@@ -317,6 +317,9 @@
   var searchProvider = PC.makeSearchProvider ? PC.makeSearchProvider(goCurrent) : function () { return []; };
   var customProvider = PC.makeCustomProvider ? PC.makeCustomProvider(function () { return customCache; }, CMDCTX) : function () { return []; };
   var tabQueryProvider = PC.makeTabQueryProvider ? PC.makeTabQueryProvider(TABQCTX) : function () { return []; };
+  // Brace-expansion batch nav (zsh `{a,b}` / `{1..10}` patterns -> N tabs). Direct
+  // chrome backend: each open is goCurrent (chrome.tabs.create); a batch loops it.
+  var braceProvider = PC.makeBraceProvider ? PC.makeBraceProvider({ open: goCurrent }) : function () { return []; };
   function customItems(list) { return PC.makeCustomItems ? PC.makeCustomItems(list, CMDCTX) : []; }
   // Inline compute (ported from zgo-core): calc / unit + currency conversion /
   // percentage + `@ <code>` stryke. stryke runs through the SAME cross-ext host
@@ -365,7 +368,7 @@
     try {
       ZGui.palette.clear();
       ZGui.palette.register(items());
-      if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); ZGui.palette.registerProvider(tabQueryProvider); }
+      if (ZGui.palette.registerProvider) { ZGui.palette.registerProvider(computeProvider); ZGui.palette.registerProvider(searchProvider); ZGui.palette.registerProvider(customProvider); ZGui.palette.registerProvider(tabQueryProvider); ZGui.palette.registerProvider(braceProvider); }
       ZGui.palette.open();
     } catch (e) {}
     try { if (PC.primeRates) PC.primeRates(getRates, refreshPalette); } catch (e) {}   // load FX rates for inline currency
