@@ -43,6 +43,7 @@
   var urlsF = Z.textfield({ placeholder: 'optional — only fire on URLs matching this regex' });
   var cooldownF = Z.textfield({ placeholder: '1500' });
   var enabledToggle = Z.toggle({ checked: true });
+  var onceToggle = Z.toggle({ checked: false });
   var saveBtn = Z.button({ label: 'ADD TRIGGER', variant: 'primary', onClick: submit });
   var cancelBtn = Z.button({ label: 'CANCEL', variant: 'mini', onClick: resetForm });
   cancelBtn.style.display = 'none';
@@ -59,7 +60,8 @@
     var grid = el('div', 'zb-cmd-form');
     var nameWrap = field('Name', nameF.el, true); nameWrap.className += ' zb-cmd-grow';
     var enWrap = field('Enabled', enabledToggle.el); enWrap.className += ' zb-trg-enfield';
-    grid.appendChild(row([nameWrap, enWrap]));
+    var onceWrap = field('Once / page', onceToggle.el); onceWrap.className += ' zb-trg-enfield';
+    grid.appendChild(row([nameWrap, enWrap, onceWrap]));
     // Pattern (grows) + Flags (narrow).
     var patWrap = field('Pattern (regex)', patternF.el, true); patWrap.className += ' zb-cmd-grow';
     var flagWrap = field('Flags', flagsF.el); flagWrap.className += ' zb-trg-flagfield';
@@ -69,7 +71,7 @@
     var urlWrap = field('URL filter (regex)', urlsF.el); urlWrap.className += ' zb-cmd-grow';
     var cdWrap = field('Cooldown (ms)', cooldownF.el); cdWrap.className += ' zb-trg-cdfield';
     grid.appendChild(row([urlWrap, cdWrap]));
-    grid.appendChild(el('div', 'zb-cmd-hint', 'URL filter (optional): only run on pages whose URL matches this regex. Cooldown: the trigger won\'t refire within this many ms — prevents a process storm on bursty output (default 1500).'));
+    grid.appendChild(el('div', 'zb-cmd-hint', 'URL filter (optional): only run on pages whose URL matches this regex. Cooldown: the trigger won\'t refire within this many ms — prevents a process storm on bursty output (default 1500). Once / page: fire at most once per page load (resets on the next full navigation) — overrides the cooldown.'));
     // Steps wizard.
     var stepsWrap = el('div');
     stepsWrap.appendChild(Z.field({ label: 'Steps (run on match)', control: stepsHost, required: true }).el);
@@ -111,6 +113,7 @@
       urls: urls,
       cooldownMs: cooldownMs,
       enabled: !!enabledToggle.get(),
+      once: !!onceToggle.get(),
       steps: res.steps
     };
     if (wasEdit) { for (var i = 0; i < trigs.length; i++) { if (trigs[i].id === editingId) { trigs[i] = entry; break; } } }
@@ -123,6 +126,7 @@
     nameF.set(t.name || ''); patternF.set(t.pattern || ''); flagsF.set(t.flags || '');
     urlsF.set(t.urls || ''); cooldownF.set(t.cooldownMs != null ? String(t.cooldownMs) : '');
     enabledToggle.set(t.enabled !== false);
+    onceToggle.set(!!t.once);
     wizard.set(entrySteps(t));
     saveBtn.textContent = 'UPDATE'; cancelBtn.style.display = '';
     try { window.scrollTo(0, 0); } catch (e) {}
@@ -130,7 +134,7 @@
   function resetForm() {
     editingId = null;
     nameF.set(''); patternF.set(''); flagsF.set(''); urlsF.set(''); cooldownF.set('');
-    enabledToggle.set(true);
+    enabledToggle.set(true); onceToggle.set(false);
     wizard.reset();
     saveBtn.textContent = 'ADD TRIGGER'; cancelBtn.style.display = 'none';
   }

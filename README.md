@@ -45,8 +45,8 @@ workspace layered on top:
   *as it renders/streams* (the browser analog of a terminal-emulator trigger) and,
   on a match, runs a chain of typed steps — shell / stryke / JavaScript /
   AppleScript / batch / browser-action / scheme / host — the identical step set a
-  ⌘K command runs, with the matched line passed as `{q}`; per-trigger cooldown and
-  an optional URL-filter regex keep it scoped;
+  ⌘K command runs, with the matched line passed as `{q}`; per-trigger cooldown, a
+  **once-per-page** mode, and an optional URL-filter regex keep it scoped;
 - an **automation verb bus** — one namespaced `browser.*` surface (tab / group /
   window ops, edge-snapping, downloads, browsing-data clearing, bookmarks,
   reading list, extensions, power, screenshot, notify, tmux toggle) that the ⌘K
@@ -139,9 +139,13 @@ command uses (`shell` / `stryke` / `js` / `applescript` / `batch` / `action` /
 `scheme` / `host` / `url`), rendered by the shared `ZwireStepWizard` and executed
 through the same `window.ZWIRE_CMD_EXEC` path — with the matched line passed as the
 `{q}` argument. Each trigger carries its own cooldown (no process storm on bursty
-output) and an optional URL-filter regex to scope which pages it fires on. Stored
-in `chrome.storage.local` (`zb_triggers`); the page is full CRUD with a
-per-trigger enable toggle.
+output), an optional **once-per-page** mode (fires at most once per page load,
+resetting on the next full navigation), and an optional URL-filter regex to scope
+which pages it fires on. zwire's own injected UI — the ⌘K palette overlay and
+toasts — is excluded from scanning, so the palette's command text never matches and
+a trigger's own result toast can't recursively re-fire it. Stored in
+`chrome.storage.local` (`zb_triggers`); the page is full CRUD with a per-trigger
+enable toggle.
 
 **Automation verb bus (`background.js` → `execZbCmd`).** Every HUD surface —
 the ⌘K palette, content-script shortcuts, and stryke hooks — drives the browser

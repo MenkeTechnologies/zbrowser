@@ -49,8 +49,8 @@
     ['ember', 'Ember'], ['arctic', 'Arctic'], ['crimson', 'Crimson'], ['toxic', 'Toxic'], ['vapor', 'Vapor']];
   var HINTS = {
     url: 'A URL to open. Use {q} as a placeholder — for a command keyword, or a trigger, {q} is the matched text.',
-    shell: 'Runs via zwire-host in the OS shell (cmd.exe on Windows, /bin/sh -c on macOS/Linux) and toasts the output — no terminal needed. {q} = the argument (typed keyword arg, or the trigger match); otherwise it is appended.',
-    stryke: 'Runs an inline stryke script via zwire-host (stryke -E) using the bundled stryke sidecar — no PATH needed — and toasts stdout. Print with `p`. {q} = the argument; otherwise it is appended.',
+    shell: 'Runs via zwire-host in the OS shell (cmd.exe on Windows, /bin/sh -c on macOS/Linux) and toasts the output — no terminal needed. {q} = the argument (typed keyword arg, or the trigger match).',
+    stryke: 'Runs an inline stryke script via zwire-host (stryke -E) using the bundled stryke sidecar — no PATH needed — and toasts stdout. Print with `p`. {q} = the argument.',
     js: 'JavaScript run in a sandboxed iframe (MV3 CSP forbids eval elsewhere) — has window/eval and can alert(), but no chrome.* and no host-page DOM. The variable `q` holds the argument.',
     applescript: 'Runs via zwire-host through osascript (macOS only) — each line becomes an -e arg, so multi-line scripts work with no temp file. {q} = the argument. E.g. tell application "Music" to playpause, or display notification "{q}".',
     batch: 'Runs via zwire-host through cmd.exe /c (Windows only) and toasts the output. {q} = the argument. E.g. echo hi {q} & start "" .',
@@ -178,7 +178,7 @@
       var placeholder = isStryke ? 'p "hello {q}"   # stryke — print with p, {q} = arg'
         : isOsa ? 'tell application "Music" to playpause   -- {q} = arg'
         : isBat ? 'echo hi {q} & start "" .   :: {q} = arg'
-        : isSh ? 'git status   # {q} = arg (else appended); runs in the OS shell via zwire-host'
+        : isSh ? 'git status   # {q} = arg; runs in the OS shell via zwire-host'
         : "alert('hi ' + q + '!')";
       var canEdit = window.HooksEditor && typeof window.HooksEditor.create === 'function' &&
         (isStryke || typeof window.HooksEditor.createPlain === 'function');

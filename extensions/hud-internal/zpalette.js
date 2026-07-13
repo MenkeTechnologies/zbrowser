@@ -248,7 +248,7 @@
   // have ZGui.toast; fall back to a self-styled corner popup).
   function hostToast(text, bad) {
     try { if (window.ZGui && ZGui.toast) { ZGui.toast.show(text); return; } } catch (e) {}
-    var d = document.createElement('div'); d.textContent = text;
+    var d = document.createElement('div'); d.textContent = text; d.setAttribute('data-zwire-ui', '1');
     d.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#0a0d16;color:' + (bad ? '#ff2a6d' : '#05d9e8') + ';border:1px solid currentColor;padding:8px 12px;font:12px "Share Tech Mono",monospace;border-radius:4px;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
     (document.body || document.documentElement).appendChild(d); setTimeout(function () { try { d.remove(); } catch (e) {} }, 3200);
   }
@@ -369,12 +369,12 @@
   function runStep(type, v, arg) {
     v = v || '';
     if (type === 'shell') {
-      var c = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : (arg ? v + ' ' + arg : v);
+      var c = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : v;
       runShell(c);
       return;
     }
     if (type === 'stryke') {
-      var sc = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : (arg ? v + ' ' + arg : v);
+      var sc = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : v;
       runStryke(sc);
       return;
     }
@@ -384,7 +384,7 @@
       return;
     }
     if (type === 'batch') {
-      var bc = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : (arg ? v + ' ' + arg : v);
+      var bc = v.indexOf('{q}') >= 0 ? v.replace(/\{q\}/g, arg || '') : v;
       runBatch(bc);
       return;
     }

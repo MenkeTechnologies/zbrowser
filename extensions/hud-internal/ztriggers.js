@@ -9,7 +9,8 @@
  * 'zb_triggers'. This content script runs on real web pages only (http/https/file — the
  * manifest group excludes the HUD's own extension pages). Matching is throttled and
  * line-capped; each trigger has its own cooldown so a burst of matching output can't
- * spawn a process storm. */
+ * spawn a process storm, and a "once per page" trigger fires at most once per page load
+ * (resets on the next full navigation, when this content script reloads). */
 (function () {
   'use strict';
   var KEY = 'zb_triggers';
@@ -19,8 +20,22 @@
   var FLUSH_MS = 350;
   // Ignore absurdly long "lines" (minified blobs, base64) — they aren't real output.
   var MAX_LINE_LEN = 4000;
+  // Text injected by zwire's own HUD UI must never be scanned: the ⌘K command-palette
+  // overlay (its command names/values), and toasts (a trigger's OWN result toast) would
+  // otherwise match and re-fire — a command-palette false match / a feedback loop.
+  var ZWIRE_UI_SEL = '.palette-overlay,.zs-toast-container,.zs-toast,[data-zwire-ui]';
+  function isZwireUi(node) {
+    try {
+      var e = node && (node.nodeType === 1 ? node : node.parentElement);
+      return !!(e && e.closest && e.closest(ZWIRE_UI_SEL));
+    } catch (x) { return false; }
+  }
 
-  var compiled = [];   // { id, name, regex, urlRe, cooldownMs, lastFired, steps }
+  var compiled = [];   // { id, name, regex, urlRe, cooldownMs, once, lastFired, steps }
+  // Ids of once-per-page triggers that have already fired this page load. Module-level
+  // so it survives recompile() (an unrelated storage edit must not re-arm a trigger);
+  // it resets naturally because the content script reloads on a full navigation.
+  var firedOnce = {};
   var observer = null;
   var pending = [];    // queued text chunks awaiting a flush
   var flushTimer = null;
@@ -43,7 +58,7 @@
     return {
       id: t.id, name: t.name || t.id, regex: regex, urlRe: urlRe,
       cooldownMs: isFinite(cd) && cd >= 0 ? cd : 1500,
-      lastFired: 0, steps: t.steps || []
+      once: !!t.once, lastFired: 0, steps: t.steps || []
     };
   }
   function recompile(list) {
@@ -91,9 +106,10 @@
     var now = Date.now();
     for (var t = 0; t < compiled.length; t++) {
       var c = compiled[t];
+      if (c.once && firedOnce[c.id]) continue;             // one fire per page load
       if (now - c.lastFired < c.cooldownMs) continue;
       for (var k = 0; k < lines.length; k++) {
-        if (c.regex.test(lines[k])) { fire(c, lines[k]); break; }
+        if (c.regex.test(lines[k])) { if (c.once) firedOnce[c.id] = true; fire(c, lines[k]); break; }
       }
     }
   }
@@ -114,9 +130,11 @@
     observer = new MutationObserver(function (muts) {
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i];
+        if (isZwireUi(m.target)) continue;                                     // skip zwire's own HUD UI
         if (m.type === 'characterData') { enqueue(m.target && m.target.nodeValue); continue; }
         for (var a = 0; a < m.addedNodes.length; a++) {
           var n = m.addedNodes[a];
+          if (isZwireUi(n)) continue;
           if (n.nodeType === 3) enqueue(n.nodeValue);                          // text node
           else if (n.nodeType === 1) enqueue(n.innerText || n.textContent);    // element subtree
         }
