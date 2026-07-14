@@ -1050,21 +1050,30 @@ function relayHost(req, respond) {
   } catch (e) { respond({ ok: false, err: String(e) }); }
 }
 
-// Open a new tab as the carrier for a tmux session and relay the attach message to it
-// once its content scripts are live (status 'complete' — document_idle has run by then).
+// Open a new tab as the carrier for a tmux session and relay the attach message to it.
+// We can't rely on a single onUpdated 'complete' push: a fast/cached page can hit
+// 'complete' before we add the listener (missed event), and a send can race the content
+// script's onMessage registration (no receiver → silent lastError, lost forever). Both
+// leave the tab open doing nothing. Instead poll sendMessage until the overlay acks it
+// attached ({ ok:true }); each ping is cheap and the ack stops the loop.
 function openTmuxSession(id, url) {
   try {
     chrome.tabs.create({ url: url }, function (tab) {
       void chrome.runtime.lastError;
       if (!tab || tab.id == null) return;
-      var tid = tab.id, done = false;
-      function attach() {
-        if (done) return; done = true;
-        try { chrome.tabs.onUpdated.removeListener(onUpd); } catch (e) {}
-        try { chrome.tabs.sendMessage(tid, { type: 'zbTmuxLoadSession', id: id }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+      var tid = tab.id, done = false, tries = 0;
+      function ping() {
+        if (done) return;
+        if (tries++ > 25) return;   // ~7.5s ceiling, then give up
+        try {
+          chrome.tabs.sendMessage(tid, { type: 'zbTmuxLoadSession', id: id }, function (resp) {
+            void chrome.runtime.lastError;   // "no receiving end" until the overlay is live — keep pinging
+            if (resp && resp.ok) { done = true; return; }
+            setTimeout(ping, 300);
+          });
+        } catch (e) { setTimeout(ping, 300); }
       }
-      function onUpd(uid, info) { if (uid === tid && info && info.status === 'complete') attach(); }
-      try { chrome.tabs.onUpdated.addListener(onUpd); } catch (e) {}
+      ping();
     });
   } catch (e) {}
 }

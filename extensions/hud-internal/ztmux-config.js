@@ -55,6 +55,11 @@
     if (!window.ZGui || !ZGui.tmux) return;
     ZGui.tmux.init({
       prefs: { load: prefsLoad, save: prefsSave },
+      // C-b is the tmux prefix GLOBALLY, even with focus in a page text field. Without this,
+      // the detached branch (tmux.js: `!open && editable && !prefixInEditable`) passes C-b
+      // through to the page as Bold, so `C-b :` dies whenever the cursor sits in a website
+      // input — the whole browsing surface is our "terminal", like real tmux owns C-b.
+      prefixInEditable: true,
       openEmptyPane: function (bodyEl) { var ref = { url: NEWTAB }; mountPane(bodyEl, ref); return Promise.resolve(ref); },
       renderPane: function (bodyEl, ref) { mountPane(bodyEl, ref); },
       paneLabel: function (ref) { return hostLabel(ref && ref.url); },
@@ -84,17 +89,23 @@
   });
 
   // The HUD Sessions page loads a layout by asking the background to open a fresh tab
-  // and relay this message to it (chrome.tabs.sendMessage). We attach the saved session
-  // here. init()'s prefs load is async, so SESSIONS may not be populated the instant the
-  // message lands (the tab just finished loading) — retry until it attaches or we give up.
-  function attachSession(id, tries) {
-    if (!window.ZGui || !ZGui.tmux || !ZGui.tmux.loadSession) { if (tries < 20) setTimeout(function () { attachSession(id, tries + 1); }, 100); return; }
+  // and poll this message to it (chrome.tabs.sendMessage) until we ack success. Each ping
+  // is one attach attempt: init()'s prefs load is async, so SESSIONS may not be populated
+  // yet (loadSession no-ops, overlay stays closed) — we ack ok:false and the background
+  // re-pings 300ms later. Once SESSIONS is live the attach opens the overlay and we ack
+  // ok:true, which stops the poll. No internal retry loop needed — the poll IS the retry.
+  function tryAttach(id) {
+    if (!window.ZGui || !ZGui.tmux || !ZGui.tmux.loadSession) return false;
     ZGui.tmux.loadSession(id);
-    if (!ZGui.tmux.isOpen() && tries < 20) setTimeout(function () { attachSession(id, tries + 1); }, 100);
+    return !!(ZGui.tmux.isOpen && ZGui.tmux.isOpen());
   }
   try {
-    chrome.runtime.onMessage.addListener(function (msg) {
-      if (msg && msg.type === 'zbTmuxLoadSession' && msg.id) attachSession(msg.id, 0);
+    chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+      if (msg && msg.type === 'zbTmuxLoadSession' && msg.id) {
+        var ok = false; try { ok = tryAttach(msg.id); } catch (e) {}
+        try { sendResponse({ ok: ok }); } catch (e) {}
+        return true;
+      }
     });
   } catch (e) {}
 
