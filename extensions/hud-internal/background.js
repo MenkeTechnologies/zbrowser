@@ -1078,6 +1078,17 @@ function openTmuxSession(id, url) {
   } catch (e) {}
 }
 
+// Open the new-tab extension's carrier page for an all-new-tab layout and hand it the
+// session. We relay to the new-tab extension (a declared externally_connectable peer) so IT
+// opens its own tmux.html — a same-extension chrome.tabs.create that always succeeds, rather
+// than a cross-extension top-level navigation which isn't guaranteed. The carrier
+// (newtab/tmux.html + tmux-host.js) hosts the overlay and self-attaches from its URL hash.
+function openTmuxCarrier(session) {
+  try {
+    chrome.runtime.sendMessage(ZB_NEWTAB_ID, { type: 'zbOpenTmuxCarrier', session: session }, function () { void chrome.runtime.lastError; });
+  } catch (e) {}
+}
+
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // HUD pages fire their own lifecycle events (palette-command, session-saved,
   // pane-split, audio-eq-changed, …) through this relay so all hook firing goes
@@ -1098,6 +1109,16 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   // hunting for a tab. { type:'zbTmuxOpen', id, url }.
   if (msg && msg.type === 'zbTmuxOpen' && msg.id && msg.url) {
     openTmuxSession(msg.id, msg.url);
+    sendResponse({ ok: true });
+    return;
+  }
+  // Sessions page → "Load" for an all-new-tab layout (no http/https/file pane to carry the
+  // overlay). Chrome won't inject our overlay onto a chrome-extension:// page, so open the
+  // new-tab extension's own carrier page (tmux.html), which ships the overlay and tiles the
+  // new-tab panes itself. The session rides in the URL hash (chrome.storage is per-extension,
+  // so the carrier can't read our zb_tmux_sessions). { type:'zbTmuxOpenCarrier', session }.
+  if (msg && msg.type === 'zbTmuxOpenCarrier' && msg.session) {
+    openTmuxCarrier(msg.session);
     sendResponse({ ok: true });
     return;
   }

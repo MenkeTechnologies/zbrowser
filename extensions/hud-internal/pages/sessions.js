@@ -131,9 +131,16 @@
   }
   function loadSession(s) {
     var url = firstPaneUrl(s);
-    if (!url) { toast('"' + s.name + '" has no web pages — add a URL to a pane first.'); return; }
-    // Background opens a new tab at `url` and relays the attach to its overlay once loaded.
-    try { chrome.runtime.sendMessage({ type: 'zbTmuxOpen', id: s.id, url: url }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    if (url) {
+      // Background opens a new tab at `url` and relays the attach to its overlay once loaded.
+      try { chrome.runtime.sendMessage({ type: 'zbTmuxOpen', id: s.id, url: url }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    } else {
+      // No web page to carry the overlay (an all-new-tab layout). Chrome won't inject the
+      // overlay onto a chrome-extension:// page, so open the new-tab extension's own carrier
+      // page (tmux.html) which ships the overlay and tiles the new-tab panes itself. The
+      // session rides in the URL hash because chrome.storage is per-extension.
+      try { chrome.runtime.sendMessage({ type: 'zbTmuxOpenCarrier', session: s }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+    }
     toast('Opening "' + s.name + '" in a new tab…');
   }
 

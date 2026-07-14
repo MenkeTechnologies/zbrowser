@@ -7,3 +7,19 @@
 chrome.action.onClicked.addListener(function () {
   try { chrome.tabs.create({}); } catch (e) { /* no-op */ }
 });
+
+// hud-internal ("Load" on an all-new-tab layout) relays the session here: Chrome won't
+// inject its overlay onto a chrome-extension:// page, and a cross-extension tab-open of our
+// page is not guaranteed, so WE open our own carrier (tmux.html) — a same-extension
+// chrome.tabs.create that always works. tmux.html hosts the overlay and self-attaches the
+// session from its URL hash. Only hud-internal (our declared externally_connectable peer).
+var HUD_ID = 'omcgnnjfmbmpdlofklbpddkhnfibfhgg';   // zwire HUD Internal
+chrome.runtime.onMessageExternal.addListener(function (msg, sender, sendResponse) {
+  if (!sender || sender.id !== HUD_ID || !msg || msg.type !== 'zbOpenTmuxCarrier' || !msg.session) return;
+  try {
+    var url = chrome.runtime.getURL('tmux.html') + '#zbtmux=' + encodeURIComponent(JSON.stringify(msg.session));
+    chrome.tabs.create({ url: url }, function () { void chrome.runtime.lastError; });
+  } catch (e) { /* no-op */ }
+  try { sendResponse({ ok: true }); } catch (e) { /* no-op */ }
+  return true;
+});

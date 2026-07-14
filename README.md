@@ -115,7 +115,10 @@ Keyboard page, with a configurable timeout). 48 prefix actions, all remappable:
 panes, and each pane's webview — saved to `chrome.storage` (survives restart).
 A full CRUD page: create / rename / duplicate / delete / load / import-export,
 per-pane URL editing, and a **live SVG preview** of each window's tiling. Save
-the current layout with `Ctrl-b S`, attach a saved one with `Ctrl-b s`.
+the current layout with `Ctrl-b S`, attach a saved one with `Ctrl-b s`. Loading
+picks the layout's first web page as the carrier tab the overlay attaches to; an
+all-new-tab layout (no web page) instead opens the new-tab extension's own
+carrier page, which hosts the overlay and tiles the new-tab panes itself.
 
 **Hooks (`pages/hooks.html`).** Bind
 [stryke](https://github.com/MenkeTechnologies/strykelang) scripts to browser

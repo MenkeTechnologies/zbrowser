@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>zwire tmux</title>
+  <style>
+    /* Bare carrier: the zgui-core tmux overlay (#zg-tmux, self-injected CSS) covers the
+       viewport once a session attaches. Keep the body dark so there's no white flash while
+       the overlay boots. schemes.js sets --bg-primary on :root. */
+    html, body { margin: 0; height: 100%; background: var(--bg-primary, #05060a); overflow: hidden; }
+  </style>
+</head>
+<body>
+  <!-- theming: sets the scheme CSS vars the overlay reads (--bg-primary/--cyan/…) -->
+  <script src="schemes.js"></script>
+  <script src="scheme-sync.js"></script>
+
+  <!-- zgui-core tmux overlay stack (each component self-injects its own CSS) -->
+  <script src="lib/zgui-core/webui/util.js"></script>
+  <script src="lib/zgui-core/webui/split-pane.js"></script>
+  <script src="lib/zgui-core/webui/modal.js"></script>
+  <script src="lib/zgui-core/webui/toast.js"></script>
+  <script src="lib/zgui-core/webui/button-bar.js"></script>
+  <script src="lib/zgui-core/webui/powerline.js"></script>
+  <script src="lib/zgui-core/webui/tmux.js"></script>
+
+  <!-- carrier host: reads the session from #zbtmux, drives ZGui.tmux, relays pane keys -->
+  <script src="tmux-host.js"></script>
+
+  <!-- ⌘K / : command palette, so ⌘K forwarded up from a new-tab pane still opens (defines __zbPaletteOpen) -->
+  <script src="lib/zgui/fzf.js"></script>
+  <script src="lib/zgui/command-palette.js"></script>
+  <script src="cmd-defaults.js"></script>
+  <script src="palette-cmds.js"></script>
+  <script src="palette.js"></script>
+</body>
+</html>

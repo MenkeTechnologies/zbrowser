@@ -48,10 +48,12 @@
     {
       "resources": [
         "newtab.html",
+        "tmux.html",
         "newtab.css",
         "newtab.js",
         "palette.js",
         "tmux-pane.js",
+        "tmux-host.js",
         "scheme-sync.js",
         "schemes.js",
         "fonts/*",
