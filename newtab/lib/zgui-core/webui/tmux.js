@@ -1216,6 +1216,15 @@
   var edEditingId = null, edHandle = null, edBody = null;
   function edUid() { return "s" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6).toString(36); }
   function edStamp() { return Date.now(); }
+  // Auto-suffix a name so saved layouts never collide: "tommy" → "tommy 2" → "tommy 3" …
+  // (case-insensitive). `skip` is an optional session to ignore (its own name, e.g. on rename).
+  function edUniqueName(base, skip) {
+    base = String(base == null ? "" : base).trim() || "layout";
+    var taken = {};
+    SESSIONS.forEach(function (s) { if (s !== skip) taken[String(s.name || "").toLowerCase()] = true; });
+    if (!taken[base.toLowerCase()]) return base;
+    for (var n = 2; ; n++) { var cand = base + " " + n; if (!taken[cand.toLowerCase()]) return cand; }
+  }
   function edTouch(s) { s.updated = edStamp(); }
   function edPaneCount(s) { return (s.windows || []).reduce(function (n, w) { return n + ((w.panes || []).length || 0); }, 0); }
   function edWhen(t) { if (!t) return ""; try { return new Date(t).toLocaleString(); } catch (e) { return ""; } }
@@ -1267,25 +1276,25 @@
   function edNewBlank() {
     edAskText("New layout — name", "layout").then(function (name) {
       if (name == null) return;
-      var s = { id: edUid(), name: (name.trim() || "layout"), created: edStamp(), updated: edStamp(), windows: [{ name: "", panes: [null] }] };
+      var s = { id: edUid(), name: edUniqueName(name.trim() || "layout"), created: edStamp(), updated: edStamp(), windows: [{ name: "", panes: [null] }] };
       SESSIONS.unshift(s); edEditingId = s.id; edPersist(); edPaint();
     });
   }
   function edSnapshotCurrent() {
     edAskText("Snapshot current layout — name", S.sessName || "layout").then(function (name) {
       if (name == null) return;
-      var s = { id: edUid(), name: (name.trim() || "layout"), created: edStamp(), updated: edStamp(), windows: sessionSnapshot() };
+      var s = { id: edUid(), name: edUniqueName(name.trim() || "layout"), created: edStamp(), updated: edStamp(), windows: sessionSnapshot() };
       SESSIONS.unshift(s); S.sessId = s.id; S.sessName = s.name; edPersist(); edPaint();
     });
   }
   function edRename(s) {
     edAskText("Rename layout", s.name).then(function (name) {
-      if (name == null) return; s.name = name.trim() || s.name; edTouch(s); edPersist(); edPaint();
+      if (name == null) return; s.name = edUniqueName(name.trim() || s.name, s); edTouch(s); edPersist(); edPaint();
     });
   }
   function edDuplicate(s) {
     var copy = JSON.parse(JSON.stringify(s));
-    copy.id = edUid(); copy.name = s.name + " copy"; copy.hotkey = ""; copy.created = copy.updated = edStamp();
+    copy.id = edUid(); copy.name = edUniqueName(s.name + " copy"); copy.hotkey = ""; copy.created = copy.updated = edStamp();
     var i = SESSIONS.indexOf(s); SESSIONS.splice(i + 1, 0, copy); edPersist(); edPaint();
   }
   function edDelete(s) {
@@ -1332,7 +1341,7 @@
           var added = 0;
           arr.forEach(function (s) {
             if (!s || !Array.isArray(s.windows)) return;
-            SESSIONS.push({ id: edUid(), name: String(s.name || "imported"), hotkey: (s.hotkey ? String(s.hotkey).slice(0, 1) : ""), created: edStamp(), updated: edStamp(),
+            SESSIONS.push({ id: edUid(), name: edUniqueName(String(s.name || "imported")), hotkey: (s.hotkey ? String(s.hotkey).slice(0, 1) : ""), created: edStamp(), updated: edStamp(),
               windows: s.windows.map(function (w) { return { name: String((w && w.name) || ""), panes: ((w && w.panes) || []).map(function (p) { return p == null ? null : p; }) }; }) });
             added++;
           });

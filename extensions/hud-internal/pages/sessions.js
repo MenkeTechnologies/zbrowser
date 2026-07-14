@@ -91,6 +91,15 @@
   }
 
   /* ------------------------------ CRUD actions ---------------------------- */
+  // Auto-suffix a name so sessions never collide: "tommy" → "tommy 2" → "tommy 3" … (case-insensitive).
+  // `skip` is an optional session to ignore (its own name, e.g. on rename).
+  function uniqueName(base, skip) {
+    base = String(base == null ? '' : base).trim() || 'session';
+    var taken = {};
+    sessions.forEach(function (s) { if (s !== skip) taken[String(s.name || '').toLowerCase()] = true; });
+    if (!taken[base.toLowerCase()]) return base;
+    for (var n = 2; ; n++) { var cand = base + ' ' + n; if (!taken[cand.toLowerCase()]) return cand; }
+  }
   function blankSession(name) {
     return { id: uid(), name: name || 'session', created: stamp(), updated: stamp(),
              windows: [{ name: '', panes: [{ url: '', title: '' }] }] };
@@ -98,18 +107,18 @@
   function newSession() {
     askText('New session', 'Session name', 'session').then(function (name) {
       if (name == null) return;
-      var s = blankSession(name.trim() || 'session');
+      var s = blankSession(uniqueName(name.trim() || 'session'));
       sessions.unshift(s); editingId = s.id; persist(render);
     });
   }
   function duplicateSession(s) {
     var copy = JSON.parse(JSON.stringify(s));
-    copy.id = uid(); copy.name = s.name + ' copy'; copy.created = copy.updated = stamp();
+    copy.id = uid(); copy.name = uniqueName(s.name + ' copy'); copy.created = copy.updated = stamp();
     var i = sessions.indexOf(s); sessions.splice(i + 1, 0, copy); persist(render);
   }
   function renameSession(s) {
     askText('Rename session', 'New name', s.name).then(function (name) {
-      if (name == null) return; s.name = name.trim() || s.name; touch(s); persist(render);
+      if (name == null) return; s.name = uniqueName(name.trim() || s.name, s); touch(s); persist(render);
     });
   }
   function deleteSession(s) {
@@ -169,7 +178,7 @@
           var added = 0;
           arr.forEach(function (s) {
             if (!s || !Array.isArray(s.windows)) return;
-            sessions.push({ id: uid(), name: String(s.name || 'imported'), created: stamp(), updated: stamp(),
+            sessions.push({ id: uid(), name: uniqueName(String(s.name || 'imported')), created: stamp(), updated: stamp(),
               windows: s.windows.map(function (w) {
                 return { name: String((w && w.name) || ''), panes: ((w && w.panes) || []).map(function (p) {
                   return { url: String((p && p.url) || ''), title: String((p && p.title) || '') };
@@ -208,10 +217,11 @@
       w.panes.forEach(function (p, pi) {
         var row = el('div', 'zsm-pane');
         row.appendChild(el('span', 'zsm-ptag', String(pi)));
-        var url = el('input', 'zs-input zsm-purl'); url.value = p.url || ''; url.placeholder = 'https://…  (webview URL)';
-        bindInput(url, function (v) { p.url = v.trim(); touch(s); persist(); });
-        var ttl = el('input', 'zs-input zsm-ptitle'); ttl.value = p.title || ''; ttl.placeholder = 'title (optional)';
-        bindInput(ttl, function (v) { p.title = v.trim(); touch(s); persist(); });
+        // Panes can be null (an "empty" pane from a tmux snapshot). Materialise on first edit.
+        var url = el('input', 'zs-input zsm-purl'); url.value = (p && p.url) || ''; url.placeholder = 'https://…  (webview URL)';
+        bindInput(url, function (v) { if (w.panes[pi] == null) w.panes[pi] = {}; w.panes[pi].url = v.trim(); touch(s); persist(); });
+        var ttl = el('input', 'zs-input zsm-ptitle'); ttl.value = (p && p.title) || ''; ttl.placeholder = 'title (optional)';
+        bindInput(ttl, function (v) { if (w.panes[pi] == null) w.panes[pi] = {}; w.panes[pi].title = v.trim(); touch(s); persist(); });
         row.appendChild(url); row.appendChild(ttl);
         row.appendChild(Z.button({ label: '✕', variant: 'mini', onClick: function () { delPane(s, w, pi); } }));
         win.appendChild(row);
@@ -226,7 +236,7 @@
 
   function matches(s) {
     var hay = s.name + ' ' + (s.windows || []).map(function (w) {
-      return (w.name || '') + ' ' + (w.panes || []).map(function (p) { return (p.url || '') + ' ' + (p.title || ''); }).join(' ');
+      return ((w && w.name) || '') + ' ' + ((w && w.panes) || []).map(function (p) { return ((p && p.url) || '') + ' ' + ((p && p.title) || ''); }).join(' ');
     }).join(' ');
     return matchFn(hay);
   }

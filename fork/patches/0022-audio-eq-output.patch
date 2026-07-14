@@ -1255,7 +1255,7 @@ index 7ee20397dd..f076020a03 100644
 +  base::Lock lock;
 +  static constexpr size_t kN = 2048;      // FFT window (mono)
 +  static constexpr size_t kScope = 256;   // scope samples (decimated)
-+  static constexpr size_t kBars = 64;     // spectrum bars
++  static constexpr size_t kBars = 256;    // spectrum bars
 +  std::array<float, kN> mono = {};
 +  size_t write_pos = 0;
 +  std::array<float, kScope> scope_l = {};

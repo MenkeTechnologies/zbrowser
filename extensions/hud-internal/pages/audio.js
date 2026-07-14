@@ -1131,7 +1131,7 @@
 
   function linToDb(v) { return (!v || v < 1e-4) ? -60 : Math.max(-60, Math.min(6, 20 * Math.log10(v))); }
   function resample(a, n) { if (!a || a.length === n) return a; var o = new Array(n); for (var i = 0; i < n; i++) o[i] = a[Math.min(a.length - 1, Math.floor(i * a.length / n))]; return o; }
-  // Map the engine's 64 log-spaced bars (0..1, 20Hz..Nyquist) back to a linear
+  // Map the engine's log-spaced bars (0..1, 20Hz..Nyquist) back to a linear
   // FFT-bin byte array so the parametric-EQ live overlay (setSpectrum) can draw it.
   var _u8 = null;
   function barsToFreqU8(bars, fs, fftSize) {

@@ -87,6 +87,21 @@
       openEmptyPane: function (bodyEl) { var ref = { url: NEWTAB }; mountPane(bodyEl, ref); return Promise.resolve(ref); },
       renderPane: function (bodyEl, ref) { mountPane(bodyEl, ref); },
       paneLabel: function (ref) { return hostLabel(ref && ref.url); },
+      // Saved-layouts editor "set…" button: prompt for the pane's web URL. Without this the editor
+      // renders panes as read-only labels (tmux.js gates the button on pickPaneRef being present).
+      pickPaneRef: function (curRef) {
+        if (!window.ZGui || !ZGui.modal || !ZGui.modal.prompt) return Promise.resolve(undefined);
+        return ZGui.modal.prompt({
+          title: "Pane URL",
+          message: "Web page URL for this pane (blank = empty pane).",
+          value: (curRef && curRef.url) || "",
+          placeholder: "https://…"
+        }).then(function (v) {
+          if (v == null) return undefined;           // cancelled → leave the pane unchanged
+          v = v.trim();
+          return v ? { url: v } : null;              // blank → empty pane
+        });
+      },
       applyKey: function (bodyEl, key) { postToPane(bodyEl, { syncapply: key }); },
       setSync: function (bodyEl, on) { postToPane(bodyEl, { setSync: !!on }); },
       setStatus: function (on) { try { chrome.storage.local.set({ zb_status: !!on }); } catch (e) {} },
