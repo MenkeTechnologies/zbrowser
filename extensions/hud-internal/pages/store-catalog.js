@@ -37,6 +37,8 @@
       tag: 'API client — collections, auth, codegen; replaces Postman.', pills: ['Tauri v2', 'Rust'] },
     { id: 'ztunnel',     glyph: 'TN', name: 'ztunnel',     category: 'Desktop Apps', badge: 'NEW',
       tag: 'VPN manager — OpenVPN & WireGuard; replaces Tunnelblick.', pills: ['Tauri v2', 'Rust'] },
+    { id: 'zthrottle',   glyph: 'TH', name: 'zthrottle',   category: 'Desktop Apps', badge: 'NEW',
+      tag: 'Stress-bench + system monitor — multi-axis benchmarks, contention profiler, live process/network/storage.', pills: ['Benchmarks + contention', 'System monitor'] },
     { id: 'zgo',         glyph: 'G',  name: 'zgo',         category: 'Desktop Apps', badge: 'NEW',
       tag: 'A launcher — workflows, script filters, snippets; replaces Alfred.', pills: ['Tauri v2', 'Rust'] },
     { id: 'zftp',        glyph: 'FT', name: 'zftp',        category: 'Desktop Apps', badge: 'NEW',
@@ -65,7 +67,7 @@
   // its glyph.
   var HAS_SHOT = [
     'zpdf', 'zphoto', 'zoffice', 'zemail', 'zstation', 'audio-haxor',
-    'traderview', 'ztranslator', 'zcite', 'zreq', 'ztunnel', 'zgo', 'zftp',
+    'traderview', 'ztranslator', 'zcite', 'zreq', 'ztunnel', 'zthrottle', 'zgo', 'zftp',
     'zcontainer', 'zterminal', 'zpwr-synth', 'zpwr-fx', 'zpwr-midi-fx'
   ];
   PRODUCTS.forEach(function (p) { if (HAS_SHOT.indexOf(p.id) !== -1) p.shot = 'store-assets/' + p.id + '.webp'; });
