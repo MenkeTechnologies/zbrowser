@@ -42,6 +42,23 @@
     var t = el.tagName;
     return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || el.isContentEditable;
   }
+  // Focus can live inside open shadow roots (web-component design systems —
+  // SmartRecruiters' spl-input, Salesforce LWC, …). document.activeElement
+  // then reports the shadow HOST (e.g. <spl-input>), whose tagName fails
+  // editable(), so vim mode kept swallowing letters while the user typed.
+  // Descend shadowRoot.activeElement to the real focused element.
+  function deepActive() {
+    var a = document.activeElement;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    return a;
+  }
+  // The true keystroke target: composedPath()[0] pierces even CLOSED shadow
+  // roots for events we receive; fall back to the deep active element.
+  function keyTarget(e) {
+    var p = e.composedPath && e.composedPath();
+    var t = p && p[0];
+    return (t && t.nodeType === 1) ? t : deepActive();
+  }
   // storage command bus (reliable MV3 wakeup) — same as the palette.
   function tabCmd(a, extra) { try { var o = { a: a, n: 'v' + (window.__zbTick = (window.__zbTick || 0) + 1) }; if (extra) for (var k in extra) o[k] = extra[k]; chrome.storage.local.set({ zb_cmd: o }); } catch (e) {} }
   function scrollBy(dx, dy) { window.scrollBy({ left: dx, top: dy, behavior: 'instant' in document.documentElement.style ? 'auto' : 'auto' }); }
@@ -150,7 +167,8 @@
       return;
     }
     // never steal keys while typing / with modifiers (except our own combos)
-    if (editable(document.activeElement)) { if (e.key === 'Escape') document.activeElement.blur(); return; }
+    var tgt = keyTarget(e);
+    if (editable(tgt)) { if (e.key === 'Escape') { try { tgt.blur(); } catch (ex) {} } return; }
     if (e.altKey || e.metaKey || e.ctrlKey) return;
 
     var k = e.key;
