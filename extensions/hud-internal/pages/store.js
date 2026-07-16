@@ -97,7 +97,10 @@
     s.textContent = [
       '.store-intro .store-lead{font-family:"Share Tech Mono",monospace;font-size:12px;color:var(--text-dim);line-height:1.6;margin:.4rem 0 .8rem;}',
       // Screenshot thumbs fill the card head (ported from the live store .thumb-shot).
-      '.product-thumb .thumb-shot{width:100%;height:100%;object-fit:cover;object-position:top center;display:block;}',
+      // width/height:100% alone isn't enough — the base `.product-thumb img` rule caps
+      // screenshots at max-width:60%/max-height:70% (sized for glyph/logo thumbs), which
+      // clamps the used size and floats the shot in the box. Reset both to fill the head.
+      '.product-thumb .thumb-shot{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;object-position:top center;display:block;}',
       '.product-card:hover .thumb-shot{filter:brightness(1.08);}',
       '.store-actions{display:flex;flex-wrap:wrap;gap:.5rem;}',
       '.store-welcome .store-lead{font-size:12px;color:var(--text-dim);line-height:1.6;margin:0 0 1rem;}',
