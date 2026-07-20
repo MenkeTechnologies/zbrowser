@@ -311,6 +311,7 @@
         "file:///*"
       ],
       "js": [
+        "zpipes-core.js",
         "ztmux-pane.js"
       ],
       "run_at": "document_idle",
@@ -334,6 +335,7 @@
         "lib/zgui-core/webui/toast.js",
         "lib/zgui-core/webui/button-bar.js",
         "lib/zgui-core/webui/tmux.js",
+        "zpipes-core.js",
         "ztmux-config.js"
       ],
       "run_at": "document_idle",

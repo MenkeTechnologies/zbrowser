@@ -87,11 +87,110 @@
     });
   }
 
+  /* ===================== TOP FRAME: pane-pipeline relay ===================== */
+  // The reactive dataflow runtime (see zpipes-core.js). Panes (ztmux-pane.js) extract
+  // and post {pipeEmit:{edgeId,lines}} up; here we run the FILTER, the per-edge GATE
+  // (cooldown / once / dedupe) and route the resulting sink message DOWN to every pane
+  // whose sink.urls matches — never a direct cross-origin DOM write. A corrupt registry
+  // (a cycle already present) is refused wholesale; a global dispatch-rate cap is the
+  // belt to the CRUD page's cycle-check suspenders against a livelock.
+  var PIPES = window.ZWIRE_PIPES;
+  var pipeEdges = [], pipeState = {};
+  var pipeWindow = [];              // timestamps of recent sink dispatches (rate cap)
+  function pipeRefresh() {
+    if (!PIPES) return;
+    try {
+      chrome.storage.local.get('zb_pipes', function (o) {
+        void chrome.runtime.lastError;
+        var list = (o && o.zb_pipes) || [];
+        // Refuse to arm a registry that already contains a cycle — it would livelock.
+        if (PIPES.graphCycle(list)) { pipeEdges = []; return; }
+        pipeEdges = list.filter(function (e) { return PIPES.normalizeEdge(e).enabled; });
+      });
+    } catch (e) {}
+  }
+  function edgeById(id) { for (var i = 0; i < pipeEdges.length; i++) if (pipeEdges[i].id === id) return pipeEdges[i]; return null; }
+  // Every mounted pane body, with its live URL (from the ref the mountPane closure sets).
+  function panesWithUrl() {
+    var frs = document.querySelectorAll('#zg-tmux .zt-pane-body'), out = [];
+    for (var i = 0; i < frs.length; i++) { var b = frs[i], ref = b._ztxRef; if (ref) out.push({ body: b, url: ref.url || '' }); }
+    return out;
+  }
+  function rateOk() {
+    var now = Date.now();
+    pipeWindow = pipeWindow.filter(function (t) { return now - t < 250; });
+    if (pipeWindow.length >= PIPES.HOP_BUDGET) return false;   // burst cap → drop to avoid livelock
+    pipeWindow.push(now);
+    return true;
+  }
+  function dispatchEmit(edgeId, lines) {
+    if (!PIPES) return;
+    var edge = edgeById(edgeId); if (!edge) return;
+    var n = PIPES.normalizeEdge(edge);
+    var filtered = PIPES.applyFilter(n.filter, lines);
+    var msg = PIPES.buildSinkMessage(n.sink, filtered);
+    if (!msg) return;
+    var value = msg.act === 'batch' ? msg.urls.join('\n') : (msg.url || msg.text || '');
+    var g = PIPES.gate(n, pipeState[edgeId], Date.now(), value);
+    if (!g.fire) return;
+    if (!rateOk()) return;
+    pipeState[edgeId] = g.state;
+    routeSink(n.sink, msg);
+  }
+  function routeSink(sink, msg) {
+    if (msg.act === 'batch') {
+      msg.urls.forEach(function (u) { try { chrome.runtime.sendMessage({ type: 'zbNewTab', url: normalizeUrl(u) }, function () { void chrome.runtime.lastError; }); } catch (e) {} });
+      return;
+    }
+    var panes = panesWithUrl();
+    for (var i = 0; i < panes.length; i++) {
+      if (!PIPES.matchUrl(sink.urls, panes[i].url)) continue;
+      if (msg.act === 'navigate') { navigatePane(panes[i].body, msg.url); }
+      else { postToPane(panes[i].body, { pipeSink: msg }); }   // fill / replace / append → in-pane
+    }
+  }
+  // Navigate a sink pane by driving its address bar + iframe (the same path go() uses).
+  function navigatePane(bodyEl, url) {
+    try {
+      var fr = frameOf(bodyEl); if (!fr) return;
+      var u = normalizeUrl(url);
+      if (bodyEl._ztxRef) bodyEl._ztxRef.url = u;
+      if (bodyEl._ztxAddr) bodyEl._ztxAddr.value = (u && u !== NEWTAB) ? u : '';
+      fr.src = u;
+    } catch (e) {}
+  }
+  if (PIPES) {
+    pipeRefresh();
+    try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_pipes) pipeRefresh(); }); } catch (e) {}
+  }
+
+  // C-b | handler: open the Pipes page, seeding the source URL-filter with the host of
+  // the pane that started the edge (escaped for the regex the filter is). The page is
+  // opened by the background worker (a content script can't create a tab itself).
+  function startPipe(src) {
+    var url = '';
+    try { var bl = bodyOfSource(src); if (bl && bl._ztxRef) url = bl._ztxRef.url || ''; } catch (e) {}
+    var seed = '';
+    try { var h = url ? new URL(normalizeUrl(url)).hostname.replace(/^www\./, '') : ''; if (h) seed = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); } catch (e) {}
+    var page = chrome.runtime.getURL('pages/pipes.html') + (seed ? ('?src=' + encodeURIComponent(seed)) : '');
+    // A NEW tab, never zbopen (which navigates THIS tab and would tear down the live
+    // tmux session the edge is being wired from).
+    try { chrome.runtime.sendMessage({ type: 'zbNewTab', url: page }, function () { void chrome.runtime.lastError; }); } catch (e) {}
+  }
+
   // Relay pane-forwarder messages into ZGui.tmux (the prefix is pressed INSIDE a pane).
   window.addEventListener('message', function (ev) {
     var d = ev.data; if (!d || !d.__zbtmux || !window.ZGui || !ZGui.tmux) return;
     if (d.prefix) ZGui.tmux.prefix();
+    // C-b | — pane pipelines: start a dataflow edge FROM the pane that pressed it.
+    // Panes forward cmdKey only post-prefix, so this is the tmux `|` binding. We open
+    // the Pipes CRUD page seeded with this pane's host as the source URL-filter; the
+    // page finishes the wiring (source kind, filter, sink). Consumed here, not fed to
+    // ZGui.tmux (`|` is not one of its actions), so no layout op runs.
+    else if (d.cmdKey === '|') { startPipe(ev.source); }
     else if (d.cmdKey) ZGui.tmux.key(d.cmdKey, { ctrl: d.ctrl, alt: d.alt });
+    // pane pipelines: a source pane extracted lines — run filter + gate + route to sinks.
+    else if (d.pipeEmit && d.pipeEmit.edgeId) { dispatchEmit(d.pipeEmit.edgeId, d.pipeEmit.lines || []); }
     else if (d.palette) { try { if (window.__zbPaletteOpen) window.__zbPaletteOpen(); } catch (e) {} }
     else if (d.loc) {   // a pane navigated — track its live URL on the ref so the address
       // bar reflects the current page and a saved/restored session reopens it there.

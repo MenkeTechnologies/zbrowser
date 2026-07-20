@@ -61,6 +61,16 @@ fi
 command rm -f /tmp/zwire-hud-tabq.$$
 echo
 
+cyber_section "PANE PIPELINES (dataflow-edge engine: extract / filter / gate / cycle)"
+if node tests/pipes.mjs 2>/tmp/zwire-hud-pipes.$$; then
+  cyber_ok "pane pipelines nominal"
+else
+  FAIL=1; cyber_fail "pane pipelines compromised"
+  command sed 's/^/    /' /tmp/zwire-hud-pipes.$$ | head -30
+fi
+command rm -f /tmp/zwire-hud-pipes.$$
+echo
+
 cyber_section "BRACE NAV (zsh brace-expansion batch-open provider)"
 if node tests/bracenav.mjs 2>/tmp/zwire-hud-brace.$$; then
   cyber_ok "brace nav nominal"

@@ -189,7 +189,86 @@
       else if (d.copyMode) copyEnter();
       else if (d.pasteText != null) insertText(d.pasteText);
       else if (d.syncapply) applyKey(d.syncapply);
+      else if (d.pipeSink) applyPipeSink(d.pipeSink);   // pane pipelines: deliver a sink write
     });
+
+    /* ===================== PANE FRAME: pipeline source + sink ===================== */
+    // Pane pipelines (see zpipes-core.js). This pane is the SOURCE for any edge whose
+    // source.urls matches its live URL: on a throttled DOM change we extract per the
+    // edge's source kind (via ZWIRE_PIPES.extractSource) and post the raw lines UP to
+    // the top-frame relay (ztmux-config.js), which runs the filter + gate + cycle/hop
+    // guard and routes the result to sink panes. This pane is a SINK when the relay
+    // posts a {pipeSink} message down: fill / replace / append write into the DOM here
+    // (navigate / batch are handled top-frame — they change the iframe src / open tabs).
+    var PIPES = window.ZWIRE_PIPES;
+    var pipeSrc = [];               // enabled source edges matching this pane's URL
+    var pipeObs = null, pipeTimer = null;
+    function pipeCtx() {
+      var text = '';
+      try { text = (document.body || document.documentElement).innerText || ''; } catch (e) {}
+      var selection = '';
+      try { selection = window.getSelection ? String(window.getSelection()) : ''; } catch (e) {}
+      return { text: text, selection: selection, url: location.href };
+    }
+    function pipeFlush() {
+      pipeTimer = null;
+      if (!PIPES || !pipeSrc.length) return;
+      var ctx = pipeCtx();
+      for (var i = 0; i < pipeSrc.length; i++) {
+        var e = pipeSrc[i];
+        try {
+          var lines = PIPES.extractSource(PIPES.normalizeEdge(e).source, ctx);
+          if (lines.length) up({ pipeEmit: { edgeId: e.id, lines: lines } });
+        } catch (x) {}
+      }
+    }
+    function pipeSchedule() { if (pipeTimer) return; pipeTimer = setTimeout(pipeFlush, 350); }
+    function pipeStart() {
+      if (pipeObs || !pipeSrc.length) return;
+      pipeFlush();                                     // initial scan of rendered content
+      try {
+        pipeObs = new MutationObserver(function () { pipeSchedule(); });
+        pipeObs.observe(document.documentElement || document, { subtree: true, childList: true, characterData: true });
+      } catch (e) {}
+      // selection-kind sources also react to selection changes.
+      try { document.addEventListener('selectionchange', pipeSchedule); } catch (e) {}
+    }
+    function pipeStop() {
+      if (pipeObs) { try { pipeObs.disconnect(); } catch (e) {} pipeObs = null; }
+      if (pipeTimer) { clearTimeout(pipeTimer); pipeTimer = null; }
+    }
+    function pipeLoad() {
+      if (!PIPES) return;
+      try {
+        chrome.storage.local.get('zb_pipes', function (o) {
+          void chrome.runtime.lastError;
+          var list = (o && o.zb_pipes) || [];
+          var href = location.href;
+          pipeSrc = list.filter(function (e) { var n = PIPES.normalizeEdge(e); return n.enabled && PIPES.matchUrl(n.source.urls, href); });
+          if (pipeSrc.length) pipeStart(); else pipeStop();
+        });
+      } catch (e) {}
+    }
+    function setNativeText(el, v) { try { var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value'); if (d && d.set) { d.set.call(el, v); return; } } catch (e) {} el.value = v; }
+    function applyPipeSink(msg) {
+      if (!msg || !msg.act) return;
+      var sel = msg.selector, text = msg.text || '';
+      if (msg.act === 'fill') {
+        var f = sel ? document.querySelector(sel) : targetField();
+        if (!f) return;
+        if ('value' in f) { setNativeText(f, text); f.dispatchEvent(new Event('input', { bubbles: true })); }
+        else if (f.isContentEditable) { f.textContent = text; f.dispatchEvent(new Event('input', { bubbles: true })); }
+      } else if (msg.act === 'replace') {
+        var r = sel && document.querySelector(sel); if (r) r.textContent = text;
+      } else if (msg.act === 'append') {
+        var a = sel && document.querySelector(sel);
+        if (a) { if ('value' in a) { setNativeText(a, a.value + text); a.dispatchEvent(new Event('input', { bubbles: true })); } else a.textContent = (a.textContent || '') + text; }
+      }
+    }
+    pipeLoad();
+    try { chrome.storage.onChanged.addListener(function (ch, area) { if (area === 'local' && ch.zb_pipes) pipeLoad(); }); } catch (e) {}
+    window.addEventListener('hashchange', pipeLoad);
+    window.addEventListener('popstate', pipeLoad);
     // Pull our sync membership from the parent on (re)load. The parent also pushes
     // setSync on our iframe's 'load' event, but that races this content script's
     // setup — it runs at document_idle, usually AFTER load fires, so the push is

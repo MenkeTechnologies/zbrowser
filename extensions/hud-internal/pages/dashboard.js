@@ -61,6 +61,7 @@
         zt('sessions.html',     'Sessions',      'Named tiling-workspace sessions — CRUD + SVG previews.', '▤'),
         zt('commands.html',     'Commands',      'Custom ⌘K palette commands (url / shell / js / scheme).', '⌘'),
         zt('triggers.html',     'Triggers',      'Regex-on-page-output triggers — run a step chain (shell / stryke / js / …) when page text matches.', '◎'),
+        zt('pipes.html',        'Pipelines',     'Pane pipelines — reactive dataflow edges between tiled webviews (source → filter → sink).', '⇥'),
         zt('keys.html',         'Keyboard',      'Remap every zwire shortcut + the tmux prefix.', '⌨'),
         zt('extshortcuts.html', 'Ext Shortcuts', 'Extension command shortcuts.', '⎇'),
         zt('ci.html',           'CI',            'Continuous-integration status board.', '◉'),

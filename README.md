@@ -47,6 +47,12 @@ workspace layered on top:
   AppleScript / batch / browser-action / scheme / host — the identical step set a
   ⌘K command runs, with the matched line passed as `{q}`; per-trigger cooldown, a
   **once-per-page** mode, and an optional URL-filter regex keep it scoped;
+- **pane pipelines** — a **Pipelines HUD page** (and the tmux prefix then `|`)
+  that wires a persisted, reactive dataflow **edge** between tiled webviews:
+  extract text from a source pane (selector / regex / selection / URL), transform
+  it (a stryke `|>` op chain, JS, or passthrough), and deliver it to a sink pane
+  (navigate / fill a field / replace or append a node / batch-open) — with a graph
+  cycle-check that refuses an A→B→A loop. No rival ships piping between tiled views;
 - an **automation verb bus** — one namespaced `browser.*` surface (tab / group /
   window ops, edge-snapping, downloads, browsing-data clearing, bookmarks,
   reading list, extensions, power, screenshot, notify, tmux toggle) that the ⌘K
@@ -100,7 +106,7 @@ copy-mode yanks up to the top frame). Recursive binary pane splits, unlimited
 windows, and **every pane is a live webview** (any URL, iframed via the
 allow-framing patch). Driven by a
 **rebindable prefix** (default `Ctrl-b` / `⌥B`; set your own — `C-a` — on the
-Keyboard page, with a configurable timeout). 48 prefix actions, all remappable:
+Keyboard page, with a configurable timeout). 49 prefix actions, all remappable:
 
 - **panes** — split h/v, directional nav (arrows + `h/j/k/l`), resize
   (`H/J/K/L`), zoom, close, swap, rotate, break-to-window, pane numbers;
@@ -110,6 +116,9 @@ Keyboard page, with a configurable timeout). 48 prefix actions, all remappable:
   panes, not just all-or-nothing (`Ctrl-b e` toggles all, `Ctrl-b E` toggles one);
 - **copy mode** — scroll + yank selection into a paste-buffer stack;
 - **marks**, **clock**, and a registry-driven **help** overlay.
+
+Beyond the 49 remappable actions, the prefix then `|` starts a **pane pipeline**
+(see below) — a reactive dataflow edge from the active pane into a sink pane.
 
 **Sessions (`pages/sessions.html`).** Durable, named tmux sessions — windows,
 panes, and each pane's webview — saved to `chrome.storage` (survives restart).
@@ -149,6 +158,38 @@ toasts — is excluded from scanning, so the palette's command text never matche
 a trigger's own result toast can't recursively re-fire it. Stored in
 `chrome.storage.local` (`zb_triggers`); the page is full CRUD with a per-trigger
 enable toggle.
+
+**Pane pipelines (`pages/pipes.html`).** Where a trigger's sink is a step chain,
+a pipeline's sink is *another pane*. A pipeline is a persisted, reactive dataflow
+**edge** between tiled webviews — the browser-native analog of `curl … | jq |
+xargs`, except the stages are live rendered pages:
+
+```
+source pane  --[ extract ]-->  [ filter ]  -->  sink pane
+```
+
+The **source** extracts text from any pane whose live URL matches its filter — a
+CSS selector's text, a regex over rendered text (capture group 1 when present),
+the current selection, or the URL — re-emitting reactively when the source pane's
+content changes (the same throttled `MutationObserver` the triggers engine uses).
+The **filter** transforms the emitted lines: a stryke-flavoured `|>` op chain
+(`trim |> uniq |> first`, plus `grep`/`reject`/`replace`/`nth`/`take`/`join`/… ),
+a JS expression (`lines`/`text` in scope), or passthrough. The **sink** delivers
+the result to any pane whose URL matches — navigate it to a URL, fill a
+selector-addressed field, replace or append a node, or batch-open every line.
+Sink writes are posted through the pane forwarder, never a direct cross-origin
+DOM write. Each edge carries a cooldown, an optional once-per-page mode, and
+value-dedupe. Start one from the overlay with the tmux prefix then `|` (seeds the
+active pane as the source); the page is full CRUD with per-edge enable toggles.
+
+The whole thing is one pure engine — `zpipes-core.js` (`window.ZWIRE_PIPES`) —
+that computes every decision (source extraction, filter, the gate, the sink
+message, and the graph **cycle check** that refuses an A→B→A edge before it can
+livelock the observer), reused verbatim by the pane forwarder, the top-frame
+relay, and the CRUD page. No rival ships a data relationship between tiled views:
+Vivaldi's Command Chains are sequence-only, Zen and Arc tile without cross-split
+dataflow, and qutebrowser has no tiling at all. Stored in `chrome.storage.local`
+(`zb_pipes`).
 
 **Automation verb bus (`background.js` → `execZbCmd`).** Every HUD surface —
 the ⌘K palette, content-script shortcuts, and stryke hooks — drives the browser
@@ -314,7 +355,7 @@ without a host and silently hand them back to the browser's built-in downloader.
 | Layer | What it is |
 |---|---|
 | **Base** | The compiled `fork/` build — a patched Chromium (pinned tag `150.0.7871.46`), unbranded release |
-| **HUD workspace** | `extensions/hud-internal` — the tiling overlay (`ztmux-config`/`ztmux-pane` driving `ZGui.tmux`), ⌘K palette (`zpalette`), vim nav + keymap (`zkeys`/`zvim`), find (`zfind`), status bar (`zpowerline` → `ZGui.powerline`), the 8-scheme picker (with light/dark toggle), and 22 HUD pages (incl. the Sessions manager, Keyboard remapper, Host console, App Store + a live Audio page). MV3 content scripts on `chrome://*/*` + `http(s)`; bridges to a native host. Needs `--extensions-on-chrome-urls` |
+| **HUD workspace** | `extensions/hud-internal` — the tiling overlay (`ztmux-config`/`ztmux-pane` driving `ZGui.tmux`), ⌘K palette (`zpalette`), vim nav + keymap (`zkeys`/`zvim`), find (`zfind`), status bar (`zpowerline` → `ZGui.powerline`), the 8-scheme picker (with light/dark toggle), and 23 HUD pages (incl. the Sessions manager, the Pipelines editor, Keyboard remapper, Host console, App Store + a live Audio page). MV3 content scripts on `chrome://*/*` + `http(s)`; bridges to a native host. Needs `--extensions-on-chrome-urls` |
 | **GUI toolkit** | `extensions/hud-internal/lib/zgui-core` — the shared `ZGui` component library (258 `webui/*` modules), a submodule loaded straight from path (never copied). Every HUD page composes `ZGui` components; zwire supplies only the glue |
 | **Native host** | `extensions/hud-internal/native/zwire-host` — a single Rust binary (native-messaging host + Unix-socket daemon: sysmon, fs, exec, PTY, KV, hooks, OS ops), a submodule. Backs the Host console + powerline stats + the audio EQ/meters file bridge |
 | **New tab** | `newtab/` — a `chrome_url_overrides.newtab` extension (in-repo, not a submodule): the full HUD new-tab (Orbitron, CRT scanlines, neon omnibox), fonts vendored locally |

@@ -1154,6 +1154,13 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     else chrome.tabs.create({ url: msg.url });
     return;
   }
+  // Pane pipelines: open a URL in a NEW tab (C-b | -> the Pipes editor, and a `batch`
+  // sink). Unlike zbopen this never navigates the caller's tab, so the live tmux
+  // session the edge is wired from survives.
+  if (msg && msg.type === 'zbNewTab' && msg.url) {
+    try { chrome.tabs.create({ url: msg.url }); } catch (e) {}
+    return;
+  }
   // A content script pinged us on load: wake + refresh the tab list into storage.
   if (msg && msg.type === 'zbping') { updateTabs(); return; }
   // Command palette: list every open tab (so the palette doubles as a switcher).
