@@ -62,7 +62,7 @@ workspace layered on top:
   never touches your system Chrome.
 
 The HUD layer (`extensions/hud-internal`) is ~11,800 lines of extension code
-across 11 subsystems and 22 pages, assembled on the **`zgui-core`** shared GUI
+across 11 subsystems and 23 pages, assembled on the **`zgui-core`** shared GUI
 toolkit (258 `ZGui.*` components, a git submodule loaded straight from
 `lib/zgui-core/webui/`) and bridged to the **`zwire-host`** native agent (a
 single Rust binary, its own submodule). Under it, a **25-patch C++ fork**
