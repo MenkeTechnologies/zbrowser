@@ -320,6 +320,17 @@ if [ -n "$SWVER" ] && [ "$(cat "$STATE/.sw_version" 2>/dev/null)" != "$SWVER" ];
   printf '%s' "$SWVER" > "$STATE/.sw_version" 2>/dev/null || true
 fi
 LOAD="$USEREXT/newtab,$USEREXT/zpwrchrome,$USEREXT/hud-internal"
+# Browser-wide audio EQ (fork patch 0022). Export the saved spec as
+# ZWIRE_AUDIO_EQ BEFORE exec so ChromeContentBrowserClient forwards it to the
+# sandboxed audio service as --zwire-audio-eq, which seeds the engine at process
+# launch (SeedZwireEqFromLaunchArgs) — audio is shaped from the first sample.
+# Without this the .app seeds unity/flat and the saved EQ only lands on the first
+# live poll push (i.e. only after the user nudges a knob). Mirrors bin/zwire.
+# Env override wins; empty/missing file = no export (engine defaults to unity).
+if [[ -z "${ZWIRE_AUDIO_EQ:-}" && -f "$STATE/audio-eq" ]]; then
+  EQ_SPEC="$(tr -d '\r\n' < "$STATE/audio-eq" 2>/dev/null || true)"
+  [[ -n "$EQ_SPEC" ]] && export ZWIRE_AUDIO_EQ="$EQ_SPEC"
+fi
 exec "$BROWSER_APP/Contents/MacOS/$EXE" \
   --user-data-dir="$PROFILE" \
   --load-extension="$LOAD" \

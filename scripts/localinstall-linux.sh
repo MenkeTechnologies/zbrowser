@@ -138,6 +138,15 @@ JSON
 }
 JSON
 done
+# Browser-wide audio EQ (fork patch 0022) — export the saved spec so it is
+# forwarded to the sandboxed audio service as --zwire-audio-eq and seeds the
+# engine at launch (audio shaped from the first sample, not only after the first
+# knob nudge). Env override wins; empty/missing file = unity default. See
+# scripts/localinstall.sh / bin/zwire for the same block.
+if [[ -z "${ZWIRE_AUDIO_EQ:-}" && -f "$STATE/audio-eq" ]]; then
+  EQ_SPEC="$(tr -d '\r\n' < "$STATE/audio-eq" 2>/dev/null || true)"
+  [[ -n "$EQ_SPEC" ]] && export ZWIRE_AUDIO_EQ="$EQ_SPEC"
+fi
 exec "$HERE/browser/chrome" \
   --user-data-dir="$PROFILE" \
   --load-extension="$HERE/ext/newtab,$HERE/ext/zpwrchrome,$HERE/ext/hud-internal" \
